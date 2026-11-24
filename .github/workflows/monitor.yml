@@ -75,8 +75,9 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          id=$(gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/actions/artifacts?per_page=100" \
-            --jq "[.[] | .artifacts[] | select(.name | startswith(\"dividend-claims-$DAY-\")) | select(.workflow_run.head_branch == \"$DEFAULT_BRANCH\" and .workflow_run.head_repository_id == $GITHUB_REPOSITORY_ID)] | max_by(.id).id // empty")
+          id=$(gh api --paginate "repos/$GITHUB_REPOSITORY/actions/artifacts?per_page=100" |
+            jq -sr --arg prefix "dividend-claims-$DAY-" --arg branch "$DEFAULT_BRANCH" --argjson repo "$GITHUB_REPOSITORY_ID" \
+              '[.[] | .artifacts[] | select(.name | startswith($prefix)) | select(.workflow_run.head_branch == $branch and .workflow_run.head_repository_id == $repo)] | max_by(.id).id // empty')
           if [[ -n "$id" ]]; then
             gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$id/zip" > "$RUNNER_TEMP/dividend-claims.zip"
             mkdir -p .monitor-state
