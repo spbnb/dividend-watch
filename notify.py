@@ -18,7 +18,11 @@ from pathlib import Path
 from urllib.request import Request, urlopen
 
 from market import CST
-from monitor import HITS, current, fresh, in_session
+from monitor import HITS, current, fresh, hit_label, in_session
+
+
+class DeliveryRejected(RuntimeError):
+    """The provider explicitly refused this message."""
 
 
 def post_json(url, payload, headers=None):
@@ -38,15 +42,20 @@ def feishu(title, lines):
         key = (ts + "\n" + secret).encode()
         payload.update(timestamp=ts, sign=base64.b64encode(hmac.new(key, b"", hashlib.sha256).digest()).decode())
     result = post_json(os.environ["FEISHU_WEBHOOK"], payload)
-    if result.get("code", result.get("StatusCode")) != 0:
-        raise RuntimeError("Feishu rejected the card")
+    status = result.get("code", result.get("StatusCode"))
+    if status is None:
+        raise RuntimeError("Feishu acknowledgement missing")
+    if status != 0:
+        raise DeliveryRejected("Feishu rejected the card")
 
 
 def pushplus(title, lines):
     result = post_json("https://www.pushplus.plus/send", {"token": os.environ["PUSHPLUS_TOKEN"],
                        "title": title, "content": "\n".join(lines), "template": "txt"})
-    if result.get("code") != 200:
-        raise RuntimeError("PushPlus rejected the message")
+    if result.get("code") is None:
+        raise RuntimeError("PushPlus acknowledgement missing")
+    if result["code"] != 200:
+        raise DeliveryRejected("PushPlus rejected the message")
 
 
 def ntfy(title, lines):
@@ -76,8 +85,10 @@ def wxpusher(title, lines):
     targets = receipt.get("data")
     rejected = isinstance(targets, list) and (not targets or any(
         isinstance(t, dict) and t.get("code", 1000) != 1000 for t in targets))
-    if receipt.get("code") != 1000 or receipt.get("success") is False or rejected:
-        raise RuntimeError("WxPusher rejected the notification")
+    if (receipt.get("code") is not None and receipt["code"] != 1000) or receipt.get("success") is False:
+        raise DeliveryRejected("WxPusher rejected the notification")
+    if receipt.get("code") != 1000 or rejected:
+        raise RuntimeError("WxPusher acknowledgement incomplete")
 
 
 def email(title, lines):
@@ -118,28 +129,53 @@ def configured_channels():
     return channels
 
 
+def signal_time(row, signal):
+    return row.get("index_at") if signal in {"index", "index_second"} else row.get("at")
+
+
+def covered_keys(keys):
+    # Keep the original first-tier keys so receipts from earlier versions still apply.
+    shallow = {"second": "first", "rsi_second": "rsi", "rsi7_second": "rsi7", "index_second": "index"}
+    covered = set()
+    for key in keys:
+        code, signal = key.split("/", 1)
+        if signal in shallow:
+            covered.add(f"{code}/{shallow[signal]}")
+    return covered
+
+
 def event_keys(row, now, benchmarks):
     market = row["market"]
-    if not (in_session(now, market) and current(benchmarks.get(market), now, market)
-            and fresh(row.get("signal_at"), now)):
+    if not (in_session(now, market) and current(benchmarks.get(market), now, market)):
         return set()
     if "premium_max" in row and not current(benchmarks.get("HK"), now, "HK"):
         return set()
     if row["status"] in HITS:
-        return {row["code"] + "/" + signal for signal in row["signals"]}
+        return {row["code"] + "/" + s for s in row["signals"] if fresh(signal_time(row, s), now)}
     return set()
 
 
-def line_for(row):
+def line_for(row, keys=None):
     digits = 4 if row.get("index") else (3 if row["type"] == "ETF" else 2)
     price = f"{row['price']:.{digits}f} {row['currency']}" if row["price"] else "暂无"
-    details = "、".join(row["reasons"])
+    label = row["label"]
+    reasons = row["reasons"]
+    if keys is not None:
+        selected = [s for s in row["signals"] if row["code"] + "/" + s in keys]
+        label = hit_label(selected)
+        reasons = [reason for s, reason in zip(row["signals"], reasons) if s in selected]
+    details = "、".join(reasons)
+    if keys is not None and any("/rsi" in k for k in keys) and row.get("gap") is not None:
+        details += f"，盘中日线暂估，距价格首档 {row['gap']:+.2f}%"
+    if row.get("premium_max") is not None and row.get("premium") is not None and row["status"] in HITS:
+        details += f"，盘中溢价 {row['premium']:.2f}%"
     if row["status"] == "blocked":
         details += f"，溢价 {row['premium']:.2f}% 超过上限 {row['premium_max']:.2f}%"
     if row.get("index"):
         details = "，".join(filter(None, [row.get("source"), details]))
-    return (f"{row['name']}（{row['code']}）　{price}｜首档 {row['first']:.{digits}f}"
-            f"｜{row['label']}" + (f" · {details}" if details else ""))
+    targets = f"{row['first']:.{digits}f}" + (f" / {row['second']:.{digits}f}" if row.get("second") else "")
+    return (f"{row['name']}（{row['code']}）　{price}｜目标 {targets}"
+            f"｜{label}" + (f" · {details}" if details else ""))
 
 
 def delivery(snapshot, now, mode, sent):
@@ -158,10 +194,9 @@ def delivery(snapshot, now, mode, sent):
     for row in snapshot["rows"]:
         active = event_keys(row, now, benchmarks)
         if active - sent:
-            rows.append(row)
+            rows.append(line_for(row, active - sent))
             keys.update(active)
-            if row["code"] + "/second" in active:
-                keys.add(row["code"] + "/first")
+            keys.update(covered_keys(active))
     if summary:
         keys.add("summary")
     if not keys:
@@ -169,13 +204,14 @@ def delivery(snapshot, now, mode, sent):
     title = "收盘后复盘" if summary and now.hour >= 15 else "尾盘巡检" if summary else "阈值提醒"
     lines = [f"北京时间 {now:%Y-%m-%d %H:%M}"]
     if rows:
-        lines += ["", "新触发"] + [line_for(r) for r in rows]
+        lines += ["", "新触发"] + rows
     if summary:
         lines += ["", "全部监控水位"] + [line_for(r) for r in snapshot["rows"]]
     link = os.getenv("DASHBOARD_URL")
     if link:
         lines.extend(["", link])
-    return f"红利观察台 · {title}", lines, keys
+    source = "GitHub " if mode.startswith("scheduled") else ""
+    return f"红利观察台 · {source}{title}", lines, keys
 
 
 def send_all(snapshot, mode, path, channels, clock=lambda: datetime.now(CST)):
@@ -207,12 +243,90 @@ def send_all(snapshot, mode, path, channels, clock=lambda: datetime.now(CST)):
     return changed, errors
 
 
+def write_record(path, record):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp = path.with_suffix(".tmp")
+    temp.write_text(json.dumps(record), encoding="utf-8")
+    temp.replace(path)
+
+
+def claim_id(day, channel, key):
+    # The cross-run artifact contains only opaque hashes, never recipient or alert details.
+    destination = {"ntfy": "NTFY_TOPIC", "wxpusher": "WXPUSHER_SPT", "feishu": "FEISHU_WEBHOOK",
+                   "pushplus": "PUSHPLUS_TOKEN", "email": "MAIL_TO"}[channel]
+    return hmac.new(os.getenv(destination, "").strip().encode(), f"{day}/{channel}/{key}".encode(),
+                    hashlib.sha256).hexdigest()
+
+
+def reserved_delivery(snapshot, mode, folder, channels, phase, clock=lambda: datetime.now(CST)):
+    """The workflow publishes the cumulative reservation before allowing any network send."""
+    day = clock().date().isoformat()
+    checkpoint, plan_path = folder / "claims.json", folder / "plan.json"
+    stored = json.loads(checkpoint.read_text(encoding="utf-8")) if checkpoint.exists() else {}
+    claims = set(stored["claims"]) if stored.get("date") == day else set()
+    if phase == "reserve":
+        legacy_path = folder / "sent.json"
+        legacy = json.loads(legacy_path.read_text(encoding="utf-8")) if legacy_path.exists() else {}
+        plan = {}
+        for channel in channels:
+            if legacy.get("date") == day:
+                claims.update(claim_id(day, channel, k) for k in legacy["sent"].get(channel, []))
+            now = clock()
+            all_events = delivery(snapshot, now, mode, set())
+            if not all_events:
+                continue
+            known = {k for k in all_events[2] if claim_id(day, channel, k) in claims}
+            packet = delivery(snapshot, now, mode, known)
+            if packet:
+                new = packet[2] - known
+                plan[channel] = {"known": sorted(known), "new": sorted(new)}
+                claims.update(claim_id(day, channel, k) for k in new)
+        if plan:
+            write_record(checkpoint, {"date": day, "claims": sorted(claims)})
+            write_record(plan_path, {"date": day, "channels": plan})
+        return bool(plan), []
+
+    consumed = folder / "dispatching.json"
+    try:
+        plan_path.replace(consumed)
+    except FileNotFoundError:
+        if consumed.exists():
+            return False, []
+        raise
+    plan = json.loads(consumed.read_text(encoding="utf-8"))
+    if plan["date"] != day:
+        return False, []
+    errors, released = [], set()
+    for channel, entry in plan["channels"].items():
+        known, new = set(entry["known"]), set(entry["new"])
+        packet = delivery(snapshot, clock(), mode, known)
+        active = packet[2] - known if packet else set()
+        if not active <= new or not all(claim_id(day, channel, k) in claims for k in active):
+            raise RuntimeError("Missing delivery reservation")
+        if packet:
+            try:
+                channels[channel](*packet[:2])
+                print(f"{channel}: message accepted")
+            except DeliveryRejected:
+                errors.append(channel)
+                print(f"::error::{channel} explicitly rejected delivery")
+                active.clear()
+            except Exception as exc:
+                errors.append(channel)
+                print(f"::error::{channel} receipt unknown ({type(exc).__name__}); reserved to prevent duplicates")
+        released.update(claim_id(day, channel, k) for k in new - active)
+    if released:
+        write_record(checkpoint, {"date": day, "claims": sorted(claims - released)})
+    return bool(released), errors
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--mode", choices=("alerts", "scheduled", "scheduled-final", "tail", "test"), default="alerts")
     parser.add_argument("--channel", choices=("all", "ntfy", "wxpusher", "feishu", "pushplus", "email"), default="all")
     parser.add_argument("--snapshot", type=Path, default=Path("docs/snapshot.json"))
     parser.add_argument("--state", type=Path, default=Path(".monitor-state/sent.json"))
+    parser.add_argument("--phase", choices=("direct", "reserve", "deliver"), default="direct")
     args = parser.parse_args()
     channels = configured_channels()
     if args.mode == "test" and args.channel != "all":
@@ -221,7 +335,10 @@ def main():
         print("::notice::所选渠道尚未配置。请检查仓库 Actions Secrets。")
         return 1 if args.mode == "test" else 0
     snapshot = {} if args.mode == "test" else json.loads(args.snapshot.read_text(encoding="utf-8"))
-    changed, errors = send_all(snapshot, args.mode, args.state, channels)
+    if args.phase == "direct":
+        changed, errors = send_all(snapshot, args.mode, args.state, channels)
+    else:
+        changed, errors = reserved_delivery(snapshot, args.mode, args.state.parent, channels, args.phase)
     if os.getenv("GITHUB_OUTPUT"):
         with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as out:
             print("changed=" + str(changed).lower(), file=out)

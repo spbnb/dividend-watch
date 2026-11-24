@@ -29,15 +29,18 @@ function details(r) {
     ["数据来源", r.source || "行情暂缺"], ["价格时间 · 北京", dateText(r.at)],
     ["首档 / 二档", fmt(r.first, digits(r)) + (r.second ? " / " + fmt(r.second, digits(r)) : "") + " " + r.currency]
   ];
+  const limits = (first, second, unit = "") => first == null ? "" :
+    " · 首档 ≤ " + first + unit + (second == null ? "" : " / 二档 ≤ " + second + unit);
   if (r.rsi_max != null || r.drawdown_days) {
-    values.push(["RSI(14)", fmt(r.rsi, 1) + (r.rsi_max ? " · 阈值 ≤ " + r.rsi_max : "")],
-                ["MACD 柱 (12,26,9)", fmt(r.macd, 4)]);
+    values.push(["日线 RSI(14)", fmt(r.rsi, 2) + limits(r.rsi_max, r.rsi_second_max)]);
   }
+  if (r.rsi7_max != null) values.push(["日线 RSI(7)", fmt(r.rsi7, 2) + limits(r.rsi7_max, r.rsi7_second_max)]);
+  if (r.rsi_max != null || r.drawdown_days) values.push(["MACD 柱 (12,26,9)", fmt(r.macd, 4)]);
   if (r.drawdown_days) values.push([r.drawdown_days + " 日收盘回撤", pct(r.drawdown) + " · 阈值 < −" + r.drawdown_pct + "%"]);
   if (r.premium_max != null) values.push(["IOPV", fmt(r.iopv, 4)], ["盘中溢价", pct(r.premium) + " · 上限 " + r.premium_max + "%"]);
   if (r.yield_min != null) values.push(["近 365 天现金股息率", (r.yield_pct == null ? "—" : fmt(r.yield_pct) + "%") + " · 观察线 " + r.yield_min + "%"]);
   if (r.index) values.push(["最近公布净值", fmt(r.nav, 4) + " · " + (r.nav_day || "—")],
-    ["跟踪指数 " + r.index, pct(r.index_pct) + " · 阈值 ≤ " + r.index_drop + "%"],
+    ["跟踪指数 " + r.index + " 日涨跌", pct(r.index_pct) + limits(r.index_drop, r.index_drop_second, "%")],
     ["指数行情时间 · 北京", dateText(r.index_at)]);
   if (r.reasons.length) values.push(["命中条件", r.reasons.join("、")]);
   if (r.observe) values.push(["通知方式", "仅在看板观察"]);

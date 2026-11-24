@@ -11,7 +11,7 @@ from pathlib import Path
 
 from market import CST, collect
 from monitor import ROOT, build, session_end
-from notify import event_keys, line_for
+from notify import covered_keys, event_keys, line_for, signal_time
 
 
 def collect_local(items, now, cache_path):
@@ -46,24 +46,36 @@ def live_report(snapshot, now):
         value = f"{row['price']:.{digits}f} {row['currency']}" if row["price"] is not None else "—"
         if row.get("index") and row["price"] and row["source"] and "已公布" not in row["source"]:
             value += "（估）"
-        table.append([f"{row['name']} {row['code']}", value, f"{row['first']:.{digits}f}", row["label"],
+        targets = f"{row['first']:.{digits}f}" + (f" / {row['second']:.{digits}f}" if row.get("second") else "")
+        indicators = []
+        for label, field, first, second, unit in (
+                ("RSI(14)", "rsi", "rsi_max", "rsi_second_max", ""),
+                ("RSI(7)", "rsi7", "rsi7_max", "rsi7_second_max", ""),
+                (row.get("index", "") + " 日涨跌", "index_pct", "index_drop", "index_drop_second", "%")):
+            if row.get(first) is not None:
+                reading = "—" if row[field] is None else f"{row[field]:.2f}{unit}"
+                limits = f"{row[first]:g}{unit}" + (f" / {row[second]:g}{unit}" if row.get(second) is not None else "")
+                indicators.append(f"{label} {reading}（≤ {limits}）")
+        table.append([f"{row['name']} {row['code']}", value, targets, "；".join(indicators) or "—", row["label"],
                       (row["at"] or "—")[:19].replace("T", " ")])
         keys = event_keys(row, now, benchmarks)
         if not keys:
             continue
         market = row["market"]
-        stamps = [row["signal_at"], benchmarks[market]["at"]]
+        event_stamps = [signal_time(row, k.split("/", 1)[1]) for k in keys]
+        stamps = [*event_stamps, benchmarks[market]["at"]]
         if "premium_max" in row:
             stamps.append(benchmarks["HK"]["at"])
         expires = min([session_end(now, market)] +
                       [datetime.fromisoformat(t) + timedelta(minutes=25) for t in stamps])
-        covers = [row["code"] + "/first"] if row["code"] + "/second" in keys else []
-        events.append({"keys": sorted(keys), "covers": covers, "expires": expires.isoformat(),
-                       "line": line_for(row) + "｜行情 " + row["signal_at"][11:19]})
+        events.append({"keys": sorted(keys), "covers": sorted(covered_keys(keys)), "expires": expires.isoformat(),
+                       "line": line_for(row, keys) + "｜行情 " + max(event_stamps)[11:19]})
     return {"day": now.date().isoformat(), "checked": now.isoformat(timespec="seconds"),
             "groups": snapshot["groups"], "total": len(snapshot["rows"]),
             "priced": sum(r["price"] is not None for r in snapshot["rows"]),
-            "open": [k for k, active in snapshot["session"].items() if active], "events": events, "rows": table}
+            "open": [k for k, active in snapshot["session"].items() if active], "events": events,
+            "columns": ["标的", "现价 / 净值", "价格首档 / 二档", "指标现值（首档 / 二档）", "状态", "行情时间（北京时间）"],
+            "rows": table}
 
 
 def main():

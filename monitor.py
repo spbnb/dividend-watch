@@ -100,6 +100,25 @@ def macd_histogram(closes):
     return 2 * (diff - signal)
 
 
+def add_indicator(row, key, label, value, first, second, unit=""):
+    if value is None or first is None or round(value, 8) > first:
+        return
+    deep = second is not None and round(value, 8) <= second
+    row["signals"].append(key + "_second" if deep else key)
+    threshold = second if deep else first
+    row["reasons"].append(f"{label}{'二档' if deep else '首档'} {value:.2f}{unit} ≤ {threshold:g}{unit}")
+
+
+def hit_label(signals):
+    if "second" in signals:
+        return LABELS["second"]
+    if "first" in signals:
+        return LABELS["first"]
+    name = "指数跌幅" if any(k.startswith("index") for k in signals) else "RSI 预警"
+    tier = "二档" if any(k.endswith("_second") for k in signals) else "首档"
+    return f"{name} · {tier}"
+
+
 def fund_quote(item, data, now):
     code, today = item["code"], now.date().isoformat()
     idx = data["quotes"].get("csi" + item["index"])
@@ -136,7 +155,7 @@ def evaluate(item, data, now):
     price, at = q.get("price"), q.get("at")
     row = {**item, **extras, "market": market, "currency": "HKD" if market == "HK" else "CNY",
            "price": price, "pct": q.get("pct"), "at": at, "source": q.get("source"),
-           "premium": None, "iopv": q.get("iopv"), "rsi": None, "drawdown": None,
+           "premium": None, "iopv": q.get("iopv"), "rsi": None, "rsi7": None, "drawdown": None,
            "macd": None, "yield_pct": None, "gap": None,
            "signals": [], "reasons": [], "signal_at": None}
     valid = current(q, now, market)
@@ -154,31 +173,34 @@ def evaluate(item, data, now):
         if previous and any(d == previous for d, _ in bars):
             closes = [v for _, v in with_tick(bars, q)]
             row["rsi"] = wilder_rsi(closes)
+            if item.get("rsi7_max") is not None:
+                row["rsi7"] = wilder_rsi(closes, 7)
             row["macd"] = macd_histogram(closes)
             window = item.get("drawdown_days")
             if window and len(closes) >= window:
                 row["drawdown"] = (price / max(closes[-window:]) - 1) * 100
     signals, reasons = row["signals"], row["reasons"]
     if valid:
+        basis = ("公布净值" if len(at) == 10 else "估算净值") if item.get("index") else "价格"
         if item.get("second") and price <= item["second"]:
             signals.append("second")
-            reasons.append("价格到达二档")
+            reasons.append(f"{basis}到达二档 ≤ {item['second']:g}")
         elif price <= item["first"]:
             signals.append("first")
-            reasons.append("净值到达目标" if item.get("index") else "价格到达首档")
-        if "rsi_max" in item and row["rsi"] is not None and row["rsi"] <= item["rsi_max"]:
-            signals.append("rsi")
-            reasons.append(f"RSI(14) ≤ {item['rsi_max']}")
+            reasons.append(f"{basis}到达首档 ≤ {item['first']:g}")
+        add_indicator(row, "rsi", "RSI(14)", row["rsi"], item.get("rsi_max"), item.get("rsi_second_max"))
+        add_indicator(row, "rsi7", "RSI(7)", row["rsi7"], item.get("rsi7_max"), item.get("rsi7_second_max"))
         if row["drawdown"] is not None and round(row["drawdown"], 8) < -item["drawdown_pct"]:
             signals.append("drawdown")
             reasons.append(f"{item['drawdown_days']} 日收盘回撤超过 {item['drawdown_pct']}%")
         row["signal_at"] = at
     idx = data["quotes"].get("csi" + item["index"]) if item.get("index") else None
     valid_index = current(idx, now, "CN")
-    if valid_index and idx["pct"] is not None and idx["pct"] <= item["index_drop"]:
-        signals.append("index")
-        reasons.append(f"跟踪指数跌幅达到 {abs(item['index_drop'])}%")
-        row["signal_at"] = idx["at"]
+    if valid_index:
+        add_indicator(row, "index", f"{item['index']} 指数日涨跌", idx.get("pct"),
+                      item["index_drop"], item.get("index_drop_second"), "%")
+        if any(s.startswith("index") for s in signals):
+            row["signal_at"] = idx["at"]
     if not (valid or valid_index):
         status = "stale" if price else "missing"
     elif item.get("observe"):
@@ -195,11 +217,12 @@ def evaluate(item, data, now):
     elif "first" in signals:
         status = "first"
     elif not signals and ((item.get("rsi_max") and row["rsi"] is None)
+                          or (item.get("rsi7_max") and row["rsi7"] is None)
                           or (item.get("index") and (not valid or not valid_index or idx["pct"] is None))):
         status = "partial"
     else:
         status = "signal" if signals else "watch"
-    row.update(status=status, label=LABELS[status])
+    row.update(status=status, label=hit_label(signals) if status in HITS else LABELS[status])
     return row
 
 

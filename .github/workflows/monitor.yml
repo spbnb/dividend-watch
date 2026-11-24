@@ -32,6 +32,9 @@ jobs:
   monitor:
     if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
     timeout-minutes: 8
     outputs:
       site_ready: ${{ steps.upload.outcome == 'success' }}
@@ -48,7 +51,7 @@ jobs:
         if: inputs.mode != 'test'
         run: python monitor.py
       - name: Select exchange date
-        if: github.event_name == 'schedule'
+        if: inputs.mode != 'test'
         id: day
         run: echo "date=$(TZ=Asia/Shanghai date +%F)" >> "$GITHUB_OUTPUT"
       - name: Restore delivery receipts
@@ -61,11 +64,29 @@ jobs:
           key: sent-v1-${{ steps.day.outputs.date }}-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: |
             sent-v1-${{ steps.day.outputs.date }}-
-      - name: Send alerts or channel test
-        id: notify
-        if: inputs.mode == 'test' || (github.event_name == 'schedule' && steps.restore.outcome == 'success')
+      - name: Restore today's latest cloud reservation
+        id: checkpoint
+        if: inputs.mode != 'test'
         continue-on-error: true
         env:
+          GH_TOKEN: ${{ github.token }}
+          DAY: ${{ steps.day.outputs.date }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          id=$(gh api --paginate --slurp "repos/$GITHUB_REPOSITORY/actions/artifacts?per_page=100" \
+            --jq "[.[] | .artifacts[] | select(.name | startswith(\"dividend-claims-$DAY-\")) | select(.workflow_run.head_branch == \"$DEFAULT_BRANCH\" and .workflow_run.head_repository_id == $GITHUB_REPOSITORY_ID)] | max_by(.id).id // empty")
+          if [[ -n "$id" ]]; then
+            gh api "repos/$GITHUB_REPOSITORY/actions/artifacts/$id/zip" > "$RUNNER_TEMP/dividend-claims.zip"
+            mkdir -p .monitor-state
+            unzip -p "$RUNNER_TEMP/dividend-claims.zip" claims.json > .monitor-state/claims.json
+          fi
+      - name: Reserve upcoming alerts or send manual channel test
+        id: plan
+        if: inputs.mode == 'test' || (github.event_name == 'schedule' && steps.restore.outcome == 'success' && steps.checkpoint.outcome == 'success')
+        continue-on-error: true
+        env: &alert_env
           MODE: ${{ inputs.mode == 'test' && 'test' || github.event.schedule == '30 6 * * 1-5' && 'scheduled-final' || 'scheduled' }}
           DASHBOARD_URL: https://spbnb.github.io/dividend-watch/
           FEISHU_WEBHOOK: ${{ secrets.FEISHU_WEBHOOK }}
@@ -80,15 +101,40 @@ jobs:
           SMTP_USER: ${{ secrets.SMTP_USER }}
           SMTP_PASS: ${{ secrets.SMTP_PASS }}
           MAIL_TO: ${{ secrets.MAIL_TO }}
-        run: python notify.py --mode "$MODE" --channel "$TEST_CHANNEL"
-      - name: Save successful receipts
-        id: save
-        if: github.event_name == 'schedule' && steps.notify.outputs.changed == 'true'
-        uses: actions/cache/save@v5
+        run: |
+          if [[ "$MODE" == test ]]; then
+            python notify.py --mode test --channel "$TEST_CHANNEL"
+          else
+            python notify.py --mode "$MODE" --phase reserve
+          fi
+      - name: Persist reservations before contacting any channel
+        id: reserve
+        if: github.event_name == 'schedule' && steps.plan.outputs.changed == 'true'
+        uses: actions/upload-artifact@v7
         continue-on-error: true
         with:
-          path: .monitor-state/sent.json
-          key: sent-v1-${{ steps.day.outputs.date }}-${{ github.run_id }}-${{ github.run_attempt }}
+          name: dividend-claims-${{ steps.day.outputs.date }}-${{ github.run_id }}-${{ github.run_attempt }}-reserved
+          path: .monitor-state/claims.json
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 3
+      - name: Deliver fresh reserved alerts
+        id: notify
+        if: steps.reserve.outcome == 'success'
+        continue-on-error: true
+        env: *alert_env
+        run: python notify.py --mode "$MODE" --phase deliver
+      - name: Release expired or explicitly rejected reservations
+        id: save
+        if: github.event_name == 'schedule' && steps.notify.outputs.changed == 'true'
+        uses: actions/upload-artifact@v7
+        continue-on-error: true
+        with:
+          name: dividend-claims-${{ steps.day.outputs.date }}-${{ github.run_id }}-${{ github.run_attempt }}-settled
+          path: .monitor-state/claims.json
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 3
       - name: Upload static site
         if: inputs.mode != 'test'
         id: upload
@@ -96,7 +142,7 @@ jobs:
         with:
           path: docs/
       - name: Report delivery or receipt failure
-        if: steps.notify.outcome == 'failure' || steps.restore.outcome == 'failure' || steps.save.outcome == 'failure'
+        if: steps.plan.outcome == 'failure' || steps.checkpoint.outcome == 'failure' || steps.reserve.outcome == 'failure' || steps.notify.outcome == 'failure' || steps.restore.outcome == 'failure' || steps.save.outcome == 'failure'
         run: exit 1
 
   deploy:

@@ -87,6 +87,89 @@ class RuleTests(unittest.TestCase):
         self.assertEqual(monitor.wilder_rsi([2] * 20), 50)
         self.assertIsNone(monitor.wilder_rsi([1] * 14))
 
+    def test_dual_rsi_tiers_combine_and_cover_only_their_own_series(self):
+        code = "sh513530"
+        bars = [((NOW.date() - timedelta(days=n)).isoformat(), 1.55) for n in range(20, -1, -1)]
+        data = fixture(code, quote(1.52, iopv=1.52))
+        data.update({"history:sh000001": bars, "history:" + code: bars})
+        def scan(long, short):
+            with patch.object(monitor, "wilder_rsi", side_effect=lambda closes, period=14: {14: long, 7: short}[period]):
+                return monitor.build([ITEMS[code]], data, NOW)
+        seed = scan(35.001, 25.001)
+        self.assertEqual(seed["rows"][0]["signals"], [])
+        shallow = scan(35, 25)
+        receipts = notify.delivery(shallow, NOW, "scheduled", set())[2]
+        self.assertEqual(receipts, {code + "/rsi", code + "/rsi7"})
+        deep = scan(30, 20)
+        row = deep["rows"][0]
+        self.assertEqual(row["signals"], ["rsi_second", "rsi7_second"])
+        self.assertEqual(row["label"], "RSI 预警 · 二档")
+        title, lines, all_keys = notify.delivery(deep, NOW, "scheduled", receipts)
+        self.assertIn("GitHub", title)
+        self.assertEqual(sum("RSI(14)" in line and "RSI(7)" in line for line in lines), 1)
+        self.assertIsNone(notify.delivery(shallow, NOW, "scheduled", all_keys))
+        local = local_scan.live_report(deep, NOW)
+        self.assertEqual(len(local["events"]), 1)
+        self.assertEqual(set(local["events"][0]["covers"]), receipts)
+        self.assertEqual(len(local["rows"][0]), len(local["columns"]))
+        self.assertEqual(scan(30, 27)["rows"][0]["signals"], ["rsi_second"])
+        self.assertEqual(scan(37, 20)["rows"][0]["signals"], ["rsi7_second"])
+        data["quotes"][code]["iopv"] = 1.40
+        blocked = scan(28, 18)
+        self.assertIsNone(notify.delivery(blocked, NOW, "scheduled", set()))
+        self.assertEqual(local_scan.live_report(blocked, NOW)["events"], [])
+
+    def test_fund_nav_and_index_are_independent_two_tier_series(self):
+        code = "012708"
+        for nav, pct, expected in [(1.36, -1.49, ["first"]), (1.30, -1.5, ["second", "index"]),
+                                   (1.37, -2.5, ["index_second"]), (1.30, -2.5, ["second", "index_second"])]:
+            with self.subTest(nav=nav, pct=pct):
+                data = fixture("csi931446", quote(3000, pct=pct))
+                data["estimate:" + code] = quote(nav)
+                snap = monitor.build([ITEMS[code]], data, NOW)
+                self.assertEqual(snap["rows"][0]["signals"], expected)
+                packet = notify.delivery(snap, NOW, "scheduled", set())
+                self.assertEqual(len(local_scan.live_report(snap, NOW)["events"]), 1)
+                if "second" in expected:
+                    self.assertIn("估算净值到达二档", " ".join(packet[1]))
+                    self.assertIn(code + "/first", packet[2])
+                if "index_second" in expected:
+                    self.assertIn(code + "/index", packet[2])
+        old = NOW - timedelta(minutes=24)
+        data["estimate:" + code] = quote(1.30, old)
+        snap = monitor.build([ITEMS[code]], data, NOW)
+        later = NOW + timedelta(minutes=2)
+        packet = notify.delivery(snap, later, "scheduled", set())
+        self.assertEqual(packet[2], {code + "/index", code + "/index_second"})
+        self.assertNotIn("估算净值到达二档", " ".join(packet[1]))
+
+    def test_cloud_reserves_before_send_and_retries_only_definite_rejections(self):
+        code = "sh600900"
+        snap = monitor.build([ITEMS[code]], fixture(code, quote(26)), NOW)
+        calls = []
+        def unknown(*_):
+            calls.append("ntfy")
+            raise TimeoutError()
+        def reject(*_):
+            calls.append("wxpusher")
+            raise notify.DeliveryRejected()
+        channels = {"ntfy": unknown, "wxpusher": reject}
+        with tempfile.TemporaryDirectory() as td, contextlib.redirect_stdout(io.StringIO()):
+            folder = Path(td)
+            def run(phase):
+                return notify.reserved_delivery(snap, "scheduled", folder, channels, phase, lambda: NOW)
+            self.assertEqual(run("reserve"), (True, []))
+            self.assertEqual(calls, [])
+            ledger = (folder / "claims.json").read_text()
+            self.assertNotIn("ntfy", ledger)
+            self.assertNotIn(code, ledger)
+            self.assertEqual(run("deliver"), (True, ["ntfy", "wxpusher"]))
+            self.assertEqual(run("reserve"), (True, []))
+            channels["wxpusher"] = lambda *_: calls.append("wxpusher")
+            self.assertEqual(run("deliver"), (False, []))
+            self.assertEqual(run("reserve"), (False, []))
+            self.assertEqual(calls, ["ntfy", "wxpusher", "wxpusher"])
+
     def test_observe_only_drawdown(self):
         bars = [((NOW.date() - timedelta(days=n)).isoformat(), 2.0) for n in range(65, -1, -1)]
         data = fixture("sh512890", quote(1.7))
