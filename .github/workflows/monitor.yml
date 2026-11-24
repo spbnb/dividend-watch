@@ -1,0 +1,107 @@
+name: Dividend Watch
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    # UTC; Beijing / Hong Kong is eight hours ahead all year.
+    - cron: '15 2,3 * * 1-5'
+    - cron: '35 5 * * 1-5'
+    - cron: '25 6 * * 1-5'
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "refresh 更新看板，test 向已配置渠道发送测试消息"
+        type: choice
+        options: [refresh, test]
+        default: refresh
+
+permissions:
+  contents: read
+
+concurrency:
+  group: dividend-watch-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  monitor:
+    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    outputs:
+      site_ready: ${{ steps.upload.outcome == 'success' }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Verify alert rules
+        run: python -m unittest discover -s tests -v
+      - name: Build dashboard
+        if: inputs.mode != 'test'
+        run: python monitor.py
+      - name: Select exchange date
+        if: github.event_name == 'schedule'
+        id: day
+        run: echo "date=$(TZ=Asia/Shanghai date +%F)" >> "$GITHUB_OUTPUT"
+      - name: Restore delivery receipts
+        if: github.event_name == 'schedule'
+        id: restore
+        uses: actions/cache/restore@v5
+        continue-on-error: true
+        with:
+          path: .monitor-state/sent.json
+          key: sent-v1-${{ steps.day.outputs.date }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            sent-v1-${{ steps.day.outputs.date }}-
+      - name: Send alerts or channel test
+        id: notify
+        if: inputs.mode == 'test' || (github.event_name == 'schedule' && steps.restore.outcome == 'success')
+        continue-on-error: true
+        env:
+          MODE: ${{ inputs.mode == 'test' && 'test' || github.event.schedule == '25 6 * * 1-5' && 'tail' || 'alerts' }}
+          DASHBOARD_URL: https://spbnb.github.io/dividend-watch/
+          FEISHU_WEBHOOK: ${{ secrets.FEISHU_WEBHOOK }}
+          FEISHU_SECRET: ${{ secrets.FEISHU_SECRET }}
+          PUSHPLUS_TOKEN: ${{ secrets.PUSHPLUS_TOKEN }}
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASS: ${{ secrets.SMTP_PASS }}
+          MAIL_TO: ${{ secrets.MAIL_TO }}
+        run: python notify.py --mode "$MODE"
+      - name: Save successful receipts
+        id: save
+        if: github.event_name == 'schedule' && steps.notify.outputs.changed == 'true'
+        uses: actions/cache/save@v5
+        continue-on-error: true
+        with:
+          path: .monitor-state/sent.json
+          key: sent-v1-${{ steps.day.outputs.date }}-${{ github.run_id }}-${{ github.run_attempt }}
+      - name: Upload static site
+        if: inputs.mode != 'test'
+        id: upload
+        uses: actions/upload-pages-artifact@v4
+        with:
+          path: docs/
+      - name: Report delivery or receipt failure
+        if: steps.notify.outcome == 'failure' || steps.restore.outcome == 'failure' || steps.save.outcome == 'failure'
+        run: exit 1
+
+  deploy:
+    needs: monitor
+    if: "!cancelled() && needs.monitor.outputs.site_ready == 'true'"
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.pages.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: pages
+        uses: actions/deploy-pages@v4

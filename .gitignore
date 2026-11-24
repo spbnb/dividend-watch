@@ -1,0 +1,8 @@
+__pycache__/
+*.py[cod]
+.venv/
+.env
+.env.*
+docs/
+.monitor-state/
+/vibe-astock/

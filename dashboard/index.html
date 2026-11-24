@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#123e35">
+  <title>红利观察台 · 自选监控</title>
+  <link rel="stylesheet" href="./style.css">
+  <script type="application/json" id="snapshot">__SNAPSHOT__</script>
+  <script src="./app.js" defer></script>
+</head>
+<body>
+  <header class="top"><div class="shell top-inner">
+    <a class="brand" href="#overview"><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>红利观察台</a>
+    <nav aria-label="主导航"><a href="#list">监控清单</a><button class="text-button" id="rules-open">巡检规则</button></nav>
+    <a class="repo" href="https://github.com/spbnb/dividend-watch">GitHub 仓库</a>
+  </div></header>
+  <main class="shell" id="overview">
+    <div class="page-heading"><div><h1>红利监控面板</h1><p id="updated">正在读取行情快照…</p></div>
+      <span class="session" id="session">定时巡检</span></div>
+    <section class="overview-grid" aria-label="行情和巡检概况">
+      <article class="index-card">
+        <div class="card-heading"><h2>上证指数 <span class="symbol">000001.SH</span></h2>
+          <div class="periods" aria-label="走势图范围"><button data-days="20" aria-pressed="true">20 日</button><button data-days="60" aria-pressed="false">60 日</button></div>
+        </div>
+        <div class="index-data"><strong id="index-price">—</strong><span id="index-change">—</span></div>
+        <div class="chart-wrap"><canvas id="chart" tabindex="0" role="img" aria-label="上证指数最近交易日走势"></canvas><output id="chart-tip" hidden></output></div>
+        <div class="chart-foot"><span id="chart-start"></span><span id="chart-caption"></span><span id="chart-end"></span></div>
+      </article>
+      <article class="summary-card"><h2>本次巡检</h2>
+        <div class="coverage"><div><strong id="group-count">—</strong><span>组监控标的</span></div><span id="row-count"></span></div>
+        <div class="summary-actions">
+          <button data-scope="hits" aria-pressed="false"><span><i class="indicator hit"></i>触发提醒</span><b id="hit-count">—</b></button>
+          <button data-scope="guard" aria-pressed="false"><span><i class="indicator guard"></i>溢价拦截 / 待核验</span><b id="guard-count">—</b></button>
+        </div>
+      </article>
+    </section>
+    <section class="watch" id="list" aria-labelledby="list-title">
+      <div class="list-heading"><div><h2 id="list-title">监控清单</h2><span id="visible-count" aria-live="polite"></span></div>
+        <label class="search"><span aria-hidden="true" class="magnifier"></span><input type="search" id="search" placeholder="搜索名称或代码" aria-label="搜索名称或代码"></label>
+      </div>
+      <div class="filter-line"><div id="filters" class="filters" role="group" aria-label="标的类别"></div>
+        <label class="sort"><select id="sort" aria-label="清单排序"><option value="gap">距首档升序</option><option value="change">涨跌幅从高到低</option><option value="status">触发状态优先</option></select></label></div>
+      <button id="clear-scope" hidden></button>
+      <table class="watch-table"><thead><tr><th scope="col">监控标的</th><th scope="col">最新价 / 净值</th><th scope="col">日涨跌</th><th scope="col">首档目标</th><th scope="col">距首档</th><th scope="col">状态</th></tr></thead><tbody id="rows"></tbody></table>
+      <div id="empty" hidden>没有符合条件的标的。<button id="reset">清除筛选</button></div>
+      <noscript><table><thead><tr><th>名称</th><th>代码</th><th>价格 / 净值</th><th>首档</th><th>状态</th></tr></thead><tbody>__ROWS__</tbody></table></noscript>
+    </section>
+    <footer><span>北京时间（UTC+8） · 交易日定时更新</span><span>自定义价位提醒，仅供观察。</span></footer>
+  </main>
+  <dialog id="rules" aria-labelledby="rules-title"><div class="dialog-heading"><h2 id="rules-title">巡检规则</h2><button id="rules-close">关闭</button></div>
+    <dl class="rule-list">
+      <dt>发送时间</dt><dd>周一至周五，北京时间 10:15、11:15、13:35、14:25 计划巡检。最后一轮汇总全表，排队延至 15:00 后会标记为收盘后复盘。</dd>
+      <dt>价格与指标</dt><dd>现价触及首档或二档，以及配置的 RSI 或指数跌幅条件，可触发提醒。日线 RSI 使用 Wilder 平滑，回撤参考含当日价格的最近 60 个交易日最高收盘价。</dd>
+      <dt>跨境 ETF</dt><dd>159545、513530 触发后复核盘中参考净值（IOPV）。溢价高于 1.5% 时发送风控提醒。缺少 IOPV 或港股基准行情停更时显示待核验。</dd>
+      <dt>场外基金</dt><dd>012708 优先展示当日已公布净值或当期估值。缺少当期估值时，用前一交易日净值乘以跟踪指数 931446 的当日变动系数。指数跌幅单独判断。</dd>
+      <dt>重复提醒</dt><dd>每个渠道独立记录当日已送达的条件。首次触及二档可以再次提醒。512890 仅列入看板和尾盘汇总。</dd>
+    </dl>
+  </dialog>
+</body>
+</html>

@@ -1,0 +1,141 @@
+:root {
+  color-scheme: light;
+  --ink: #192c28; --muted: #566a64; --line: #dce4df; --green: #175544;
+  --wash: #f3f6f3; --rise: #a34236; --fall: #167052;
+  font: 16px/1.55 "Inter", "Microsoft YaHei", "PingFang SC", system-ui, sans-serif;
+  color: var(--ink); background: var(--wash);
+}
+* { box-sizing: border-box }
+body { margin: 0 }
+button, input, select { font: inherit; color: inherit }
+button, select { cursor: pointer }
+a { color: inherit; text-decoration: none }
+button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible, canvas:focus-visible {
+  outline: 3px solid #b17625; outline-offset: 3px;
+}
+[hidden] { display: none !important }
+h1, h2, p { margin: 0 }
+h1, h2, .brand { letter-spacing: -.035em }
+.shell { max-width: 1240px; margin: 0 auto; padding: 0 clamp(18px, 3.4vw, 48px) }
+.top { background: #fff; border-bottom: 1px solid var(--line) }
+.top-inner, nav, .brand, .page-heading, .card-heading, .periods, .index-data, .coverage, .list-heading, .list-heading > div, .filter-line, footer, .dialog-heading {
+  display: flex; align-items: center;
+}
+.top-inner { min-height: 65px; gap: clamp(16px, 4vw, 56px) }
+.brand { display: inline-flex; gap: 10px; font-size: 1.17rem; font-weight: 780 }
+.brand-mark { width: 31px; height: 31px; display: inline-flex; align-items: flex-end; justify-content: center; gap: 2px; padding-bottom: 8px; border-radius: 8px; background: #184d40 }
+.brand-mark i { width: 3px; height: 6px; border-radius: 2px; background: #e0f3a0 }
+.brand-mark i:nth-child(2) { height: 11px }
+.brand-mark i:nth-child(3) { height: 16px }
+nav { gap: 24px; font-size: .91rem; color: #475d56 }
+.text-button { padding: 0; background: none; border: 0 }
+nav a:hover, .text-button:hover, .repo:hover { color: #087b58; text-decoration: underline }
+.repo { margin-left: auto; font-size: .875rem; color: var(--muted) }
+.page-heading { justify-content: space-between; gap: 12px; padding: 34px 0 22px }
+h1 { font-size: clamp(1.7rem, 3vw, 2.5rem); line-height: 1.22; font-weight: 760 }
+.page-heading p { margin-top: 7px; color: var(--muted); font-size: .9rem }
+.session { font-size: .875rem; font-weight: 650; border: 1px solid #cad8ce; border-radius: 20px; padding: 5px 12px; color: #405b4d; background: #ebf1e9; white-space: nowrap }
+.overview-grid { display: grid; grid-template-columns: 1.65fr 1fr; gap: 16px }
+.index-card, .summary-card, .watch { border-radius: 16px; overflow: hidden }
+.index-card { background: #123e35; color: #f1f6ef; padding: 19px 23px 14px; position: relative }
+.card-heading, .coverage, footer, .dialog-heading, .list-heading, .filter-line { justify-content: space-between }
+h2 { font-size: 1.18rem; line-height: 1.4; font-weight: 720 }
+.symbol { color: #bed3c9; font: 550 .78rem/1.2 "IBM Plex Mono", Consolas, monospace; letter-spacing: .03em; margin-left: 5px }
+.periods { border: 1px solid #4b7066; border-radius: 8px; padding: 2px }
+.periods button { border: 0; border-radius: 5px; padding: 2px 8px; background: transparent; color: #d3e3dc; font-size: .83rem }
+.periods button[aria-pressed=true] { background: #dcead9; color: #183c31 }
+.index-data { gap: 10px; margin-top: 4px }
+.index-data strong, .coverage strong { font: 570 clamp(2rem, 4vw, 2.85rem)/1.2 "Inter", "Segoe UI", sans-serif; letter-spacing: -.065em; font-variant-numeric: tabular-nums }
+#index-change { background: #2e594d; color: #e8f2df; padding: 1px 7px; border-radius: 5px; font-size: .87rem }
+.chart-wrap { position: relative; height: 69px; margin-top: 5px }
+#chart { width: 100%; height: 100%; display: block; touch-action: pan-y }
+#chart-tip { position: absolute; top: 0; pointer-events: none; padding: 2px 6px; border-radius: 4px; background: #eff5df; color: #1a3930; font-size: .77rem; white-space: nowrap }
+.chart-foot { display: flex; min-height: 18px; align-items: center; justify-content: space-between; color: #bcd1c5; font-size: .77rem; font-variant-numeric: tabular-nums }
+.summary-card, .watch { background: #fff; border: 1px solid var(--line) }
+.summary-card { padding: 19px 23px 12px }
+.coverage { align-items: baseline; padding: 10px 0 13px; gap: 8px; border-bottom: 1px solid var(--line) }
+.coverage strong { color: var(--green); margin-right: 8px }
+.coverage span { color: var(--muted); font-size: .85rem }
+.summary-actions { display: grid; gap: 2px; margin-top: 4px }
+.summary-actions button { display: flex; align-items: center; justify-content: space-between; gap: 10px; border: 0; padding: 4px 5px; margin: 0 -5px; border-radius: 5px; background: none; font-size: .88rem }
+.summary-actions button:hover, .summary-actions button[aria-pressed=true] { background: #ecf4eb }
+.summary-actions button > span { display: inline-flex; align-items: center; gap: 8px }
+.summary-actions b { font-size: 1.02rem; font-variant-numeric: tabular-nums }
+.indicator { width: 8px; height: 8px; border-radius: 2px; flex: none }
+.indicator.hit { background: #397e5a }.indicator.guard { background: #bd8542 }
+.watch { margin-top: 22px; scroll-margin-top: 12px }
+.list-heading { padding: 21px 23px 14px; gap: 12px }
+.list-heading > div { gap: 10px }
+.list-heading h2 { font-size: 1.37rem }
+#visible-count { color: var(--muted); font-size: .84rem }
+.search { display: flex; align-items: center; padding: 5px 9px 5px 12px; border-radius: 8px; border: 1px solid #d6e1d9; gap: 9px }
+.search input { min-width: 0; width: 152px; border: 0; padding: 2px 0; background: transparent; font-size: .875rem }
+.magnifier { position: relative; width: 13px; height: 13px; border: 1.7px solid #63786d; border-radius: 50% }
+.magnifier:after { content: ""; position: absolute; right: -4px; bottom: -2px; transform: rotate(45deg); width: 6px; height: 1.7px; background: #63786d }
+.filter-line { padding: 0 23px 15px; gap: 8px; flex-wrap: wrap }
+.filters { display: flex; gap: 5px; flex-wrap: wrap }
+.filters button, #clear-scope, #reset, .dialog-heading button { border: 0; background: #eef3ee; border-radius: 6px; font-size: .875rem; padding: 5px 10px }
+.filters button { color: #50645a; background: transparent }
+.filters button[aria-pressed=true] { background: #204f41; color: #fff }
+.filters button:hover:not([aria-pressed=true]) { background: #edf3ee }
+.sort { position: relative; font-size: .86rem; color: var(--muted) }
+.sort select { appearance: none; padding: 6px 24px 6px 8px; border: 0; background: transparent }
+.sort:after { content: ""; position: absolute; width: 6px; height: 6px; border: solid currentColor; border-width: 0 1.5px 1.5px 0; transform: translateY(-70%) rotate(45deg); right: 7px; top: 50%; pointer-events: none }
+#clear-scope { margin: 0 23px 12px; background: #edf1df }
+.watch-table { width: 100%; border-collapse: collapse; font-size: .94rem; font-variant-numeric: tabular-nums }
+.watch-table th { padding: 9px 12px; border-block: 1px solid var(--line); background: #f3f6f3; color: var(--muted); font-size: .81rem; font-weight: 600; white-space: nowrap }
+.watch-table th, .watch-table td { text-align: right }
+.watch-table th:first-child, .watch-table td:first-child { text-align: left; padding-left: 23px }
+.watch-table th:last-child, .watch-table td:last-child { padding-right: 23px }
+.watch-table td { padding: 11px 12px; border-bottom: 1px solid #e8eee8 }
+.watch-table tbody tr:last-child td { border-bottom: 0 }
+.row:hover, .row.open { background: #f8faf6 }
+.name-button { display: inline-flex; align-items: center; gap: 10px; text-align: left; border: 0; background: none; padding: 1px 2px; line-height: 1.35 }
+.type-icon { display: inline-grid; place-items: center; width: 33px; height: 33px; border: 1px solid #cfe0d6; border-radius: 8px; background: #e8f1e7; color: #2d6349; font: 700 .73rem/1 "Inter", "Segoe UI", sans-serif; letter-spacing: -.02em; flex: none }
+.type-icon.stock { background: #eaf0f6; border-color: #d6e0e8; color: #3d607a }
+.type-icon.hk { background: #f5ece3; border-color: #e8d9ca; color: #865b37 }
+.type-icon.fund { background: #f0edf7; border-color: #e0d8e9; color: #695780 }
+.name-button b { font-size: .96rem; font-weight: 650 }
+.code { display: block; color: var(--muted); font: .77rem/1.5 "IBM Plex Mono", Consolas, monospace; letter-spacing: .015em }
+.currency { font-size: .72rem; color: var(--muted); margin-right: 2px }
+.num { white-space: nowrap }.price { font-weight: 650 }
+.up { color: var(--rise) }.down { color: var(--fall) }
+.badge { border-radius: 5px; padding: 3px 7px; display: inline-block; font-size: .81rem; white-space: nowrap; color: #486057; background: #eef2ee }
+.badge.hits { background: #e0f1df; color: #275e3a }
+.badge.guard { background: #fbecd6; color: #855820 }
+.badge.quiet { color: #596377; background: #edf0f5 }
+.row-details td { background: #f5f8f4 }
+.detail { display: grid; grid-template-columns: repeat(auto-fit, minmax(145px, 1fr)); gap: 10px 18px; text-align: left; margin: 3px 0 5px }
+.detail div { min-width: 0 }.detail dt { color: var(--muted); font-size: .79rem }.detail dd { margin: 1px 0; font-size: .9rem; overflow-wrap: anywhere }
+#empty { padding: 30px; text-align: center; color: var(--muted) }
+footer { padding: 20px 0 32px; gap: 8px; color: var(--muted); font-size: .8rem; flex-wrap: wrap }
+dialog { border: 1px solid #cad7ce; border-radius: 15px; padding: 23px; width: min(490px, 92vw); color: var(--ink); max-height: 84vh; overflow: auto }
+dialog::backdrop { background: #102e2666 }.dialog-heading { margin-bottom: 14px }
+.rule-list { margin: 0 }.rule-list dt { font-weight: 700; margin: 12px 0 3px }.rule-list dd { margin: 0; color: #4e6156; font-size: .91rem }
+@media (max-width: 760px) {
+  .overview-grid { grid-template-columns: 1.4fr 1fr; gap: 10px }
+  .index-card, .summary-card { padding-left: 15px; padding-right: 15px }
+  .watch-table th, .watch-table td { padding-left: 6px; padding-right: 6px }
+  .watch-table th:first-child, .watch-table td:first-child { padding-left: 13px }
+  .watch-table th:last-child, .watch-table td:last-child { padding-right: 13px }
+  .coverage { flex-wrap: wrap; gap: 0 }.type-icon { display: none }
+}
+@media (max-width: 600px) {
+  .top-inner { min-height: 55px; gap: 13px }.brand { font-size: 1.04rem } nav { gap: 12px; margin-left: auto; font-size: .84rem }.repo { display: none }
+  .page-heading { padding: 22px 0 15px }.page-heading p { font-size: .8rem }.session { font-size: .78rem; padding: 4px 8px }
+  .overview-grid { grid-template-columns: 1fr }.index-card { padding: 14px 16px 9px }.chart-wrap { height: 64px }.summary-card { display: grid; grid-template-columns: 1fr 1.2fr; gap: 0 13px; padding: 12px 16px }
+  .summary-card h2 { font-size: .97rem }.coverage { grid-column: 1; grid-row: 2; border: 0; padding: 0; display: block }.coverage strong { font-size: 1.7rem }.coverage > span { display: block; font-size: .76rem }
+  .summary-actions { grid-column: 2; grid-row: 1 / 3; align-self: center; border-left: 1px solid var(--line); padding-left: 13px }.summary-actions button { font-size: .8rem }
+  .watch { margin-top: 14px; border-radius: 12px }.list-heading { padding: 15px 13px 9px }.list-heading h2 { font-size: 1.15rem }
+  .search { padding: 4px 7px; gap: 7px }.search input { width: 109px; font-size: .8rem }
+  .filter-line { padding: 0 10px 8px; gap: 2px }.filters { gap: 1px }.filters button { padding: 4px 7px; font-size: .8rem }.sort { font-size: .8rem }
+  .watch-table thead { position: absolute; clip-path: inset(50%); width: 1px; height: 1px; overflow: hidden }
+  .watch-table, .watch-table tbody { display: block }
+  .watch-table .row { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); border-top: 1px solid var(--line); align-items: center; padding: 10px 12px; gap: 6px 3px }
+  .watch-table .row td { border: 0; padding: 0; text-align: left; font-size: .85rem }
+  .row td:first-child { grid-column: 1 / 4; grid-row: 1 }
+  .row td:last-child { grid-row: 1; grid-column: 4; justify-self: end }.type-icon { display: inline-grid; width: 28px; height: 28px }
+  .row td[data-label]:before { content: attr(data-label); display: block; color: var(--muted); font-size: .75rem; margin-bottom: 1px }
+  .name-button { gap: 8px }.code { font-size: .72rem }.name-button b { font-size: .9rem }.badge { font-size: .73rem; padding: 2px 4px }
+  .row-details, .row-details td { display: block }.detail { grid-template-columns: repeat(2, minmax(0, 1fr)) } footer { display: block } footer span { display: block }
+}
