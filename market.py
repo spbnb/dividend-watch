@@ -57,7 +57,7 @@ def tencent_quotes(codes, etfs):
         price, at = number(f[3], positive=True), timestamp(f[30])
         if price is None or not at:
             continue
-        q = {"price": price, "pct": number(f[32]), "at": at,
+        q = {"price": price, "pct": number(f[32]), "at": at, "prev_close": number(f[4], positive=True),
              "volume": number(f[6]), "source": "腾讯财经"}
         if code in etfs and len(f) > 78:
             iopv, premium = number(f[78], positive=True), number(f[77])
@@ -79,7 +79,7 @@ def secid(code):
 def eastmoney_quotes(codes):
     ids = {secid(code): code for code in codes}
     params = urlencode({"secids": ",".join(ids), "fltt": 2, "invt": 2,
-                        "fields": "f2,f3,f5,f12,f13,f124,f297,f441"})
+                        "fields": "f2,f3,f5,f12,f13,f18,f124,f297,f441"})
     for host in ("push2", "push2delay"):
         try:
             url = f"https://{host}.eastmoney.com/api/qt/ulist.np/get?{params}"
@@ -99,6 +99,7 @@ def eastmoney_quotes(codes):
                     continue
                 result[code] = {"price": price, "pct": number(f.get("f3")), "at": at,
                                 "volume": number(f.get("f5")), "source": "东方财富",
+                                "prev_close": number(f.get("f18"), positive=True),
                                 "iopv": number(f.get("f441"), positive=True)}
             if result:
                 return result

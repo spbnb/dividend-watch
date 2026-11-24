@@ -55,7 +55,7 @@ class RuleTests(unittest.TestCase):
 
     def test_nav_proxy_needs_matching_previous_session(self):
         data = fixture("csi931446", quote(1200, pct=-2))
-        data["history:sh000001"] = [("2026-11-23", 3100)]
+        data["history:sh000001"] = [("2026-11-23", 3100), ("2026-11-24", 3000)]
         data["nav:012708"] = {"2026-11-23": {"price": 1.38, "pct": 0}}
         r = monitor.evaluate(ITEMS["012708"], data, NOW)
         self.assertAlmostEqual(r["price"], 1.3524)
@@ -63,6 +63,15 @@ class RuleTests(unittest.TestCase):
         data["nav:012708"] = {"2026-11-20": {"price": 1.2, "pct": 0}}
         r = monitor.evaluate(ITEMS["012708"], data, NOW)
         self.assertEqual((r["signals"], r["gap"]), (["index"], None))
+
+    def test_stale_history_and_stale_nav_cannot_validate_each_other(self):
+        data = fixture("csi931446", quote(1200, pct=-2))
+        data["history:sh000001"] = [("2026-11-20", 3100)]
+        data["nav:012708"] = {"2026-11-20": {"price": 1.2, "pct": 0}}
+        data["quotes"]["sh000001"]["prev_close"] = 3050
+        row = monitor.evaluate(ITEMS["012708"], data, NOW)
+        self.assertEqual(row["signals"], ["index"])
+        self.assertIn("已公布", row["source"])
 
     def test_fund_estimate_change_is_not_index_change(self):
         data = fixture("csi931446", quote(1200, pct=-0.1))

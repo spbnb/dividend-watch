@@ -51,6 +51,22 @@ def with_tick(bars, quote):
     return [bar for bar in bars if bar[0] < day] + [(day, quote["price"])]
 
 
+def previous_session(data, day):
+    bars = data.get("history:sh000001", [])
+    older = [(d, v) for d, v in bars if d < day]
+    if not older:
+        return None
+    if any(d == day for d, _ in bars):
+        return older[-1][0]
+    # Some intraday feeds append today's bar only after the close. In that
+    # case verify the last historical close against today's benchmark quote.
+    index = data["quotes"].get(BENCHMARKS["CN"]) or {}
+    close = index.get("prev_close")
+    if index.get("at", "")[:10] == day and close and abs(older[-1][1] - close) < 0.005:
+        return older[-1][0]
+    return None
+
+
 def wilder_rsi(closes, period=14):
     if len(closes) <= period:
         return None
@@ -93,8 +109,7 @@ def fund_quote(item, data, now):
         return direct, extra
     if idx and current(idx, now, "CN") and idx.get("pct") is not None:
         # A one-day index move requires the immediately preceding trading day's NAV.
-        prior_sessions = [day for day, _ in data.get("history:sh000001", []) if day < today]
-        prior = navs.get(max(prior_sessions)) if prior_sessions else None
+        prior = navs.get(previous_session(data, today))
         if prior:
             return {"price": prior["price"] * (1 + idx["pct"] / 100), "pct": idx["pct"],
                     "at": idx["at"], "source": "前一交易日净值 × 指数涨跌"}, extra
@@ -127,8 +142,8 @@ def evaluate(item, data, now):
             row["yield_pct"] = 100 * cash / price
         bars = data.get("history:" + code, [])
         # A cached series ending before the last session must not generate an indicator signal.
-        previous = [d for d, _ in data.get("history:sh000001", []) if d < at[:10]]
-        if previous and any(d == previous[-1] for d, _ in bars):
+        previous = previous_session(data, at[:10])
+        if previous and any(d == previous for d, _ in bars):
             closes = [v for _, v in with_tick(bars, q)]
             row["rsi"] = wilder_rsi(closes)
             row["macd"] = macd_histogram(closes)
