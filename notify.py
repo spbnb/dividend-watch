@@ -12,7 +12,7 @@ import smtplib
 import ssl
 import sys
 import time
-from datetime import datetime
+from datetime import datetime, time as clock_time
 from email.message import EmailMessage
 from pathlib import Path
 from urllib.request import Request, urlopen
@@ -123,8 +123,6 @@ def event_keys(row, now, benchmarks):
     if not (in_session(now, market) and current(benchmarks.get(market), now, market)
             and fresh(row.get("signal_at"), now)):
         return set()
-    if row["status"] == "blocked":
-        return {row["code"] + "/premium"}
     if "premium_max" in row and not current(benchmarks.get("HK"), now, "HK"):
         return set()
     if row["status"] in HITS:
@@ -148,6 +146,10 @@ def delivery(snapshot, now, mode, sent):
     if mode == "test":
         return "红利观察台 · 渠道测试", ["这是一条手动测试消息。", f"北京时间 {now:%Y-%m-%d %H:%M}"], set()
     if snapshot["generated"][:10] != now.date().isoformat():
+        return None
+    if mode == "scheduled" and not (clock_time(8) <= now.time() < clock_time(14, 31)):
+        return None
+    if mode == "scheduled-final" and not (clock_time(14, 30) <= now.time() < clock_time(15)):
         return None
     benchmarks = snapshot["benchmarks"]
     summary = (mode == "tail" and "summary" not in sent and now.weekday() < 5
@@ -207,7 +209,7 @@ def send_all(snapshot, mode, path, channels, clock=lambda: datetime.now(CST)):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--mode", choices=("alerts", "tail", "test"), default="alerts")
+    parser.add_argument("--mode", choices=("alerts", "scheduled", "scheduled-final", "tail", "test"), default="alerts")
     parser.add_argument("--channel", choices=("all", "ntfy", "wxpusher", "feishu", "pushplus", "email"), default="all")
     parser.add_argument("--snapshot", type=Path, default=Path("docs/snapshot.json"))
     parser.add_argument("--state", type=Path, default=Path(".monitor-state/sent.json"))

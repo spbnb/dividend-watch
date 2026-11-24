@@ -40,7 +40,7 @@ function details(r) {
     ["跟踪指数 " + r.index, pct(r.index_pct) + " · 阈值 ≤ " + r.index_drop + "%"],
     ["指数行情时间 · 北京", dateText(r.index_at)]);
   if (r.reasons.length) values.push(["命中条件", r.reasons.join("、")]);
-  if (r.observe) values.push(["通知方式", "仅列入尾盘汇总"]);
+  if (r.observe) values.push(["通知方式", "仅在看板观察"]);
   const dl = el("dl", null, "detail");
   for (const [name, value] of values) {
     const node = el("div");

@@ -18,10 +18,18 @@ LABELS = {"first": "触及首档", "second": "触及二档", "signal": "指标�
 HITS = {"first", "second", "signal"}
 
 
-def in_session(now, market):
+def session_end(now, market):
     t = now.time()
     lunch, close = (time(12), time(16)) if market == "HK" else (time(11, 30), time(15))
-    return now.weekday() < 5 and (time(9, 30) <= t < lunch or time(13) <= t < close)
+    if now.weekday() < 5:
+        for start, end in ((time(9, 30), lunch), (time(13), close)):
+            if start <= t < end:
+                return datetime.combine(now.date(), end, now.tzinfo)
+    return None
+
+
+def in_session(now, market):
+    return session_end(now, market) is not None
 
 
 def fresh(at, now):

@@ -170,7 +170,7 @@ def combine_quotes(primary, backup):
     return merged
 
 
-def collect(watchlist, today):
+def collect(watchlist, today, *, references=None):
     exchange = [i["code"] for i in watchlist if i["type"] != "场外基金"]
     etfs = {i["code"] for i in watchlist if i["type"] == "ETF"}
     funds = [i for i in watchlist if i["type"] == "场外基金"]
@@ -186,9 +186,12 @@ def collect(watchlist, today):
     for item in watchlist:
         if item.get("yield_min"):
             jobs["cash:" + item["code"]] = (dividends, item["code"], today)
-    result = {}
+    # Intraday clients may reuse daily bars, reported NAV and cash distributions.
+    # Quotes, the benchmark and the fund estimate are fetched on every call.
+    result = {k: v for k, v in (references or {}).items()
+              if k in jobs and k.startswith(("history:", "nav:", "cash:"))}
     with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
-        futures = {pool.submit(fn, *args): key for key, (fn, *args) in jobs.items()}
+        futures = {pool.submit(fn, *args): key for key, (fn, *args) in jobs.items() if key not in result}
         for future in concurrent.futures.as_completed(futures):
             key = futures[future]
             try:

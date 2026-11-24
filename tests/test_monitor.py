@@ -8,6 +8,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import market
+import local_scan
 import monitor
 import notify
 
@@ -141,6 +142,63 @@ class RuleTests(unittest.TestCase):
             with patch.object(notify, "post_json", return_value={"code": 500}):
                 with self.assertRaises(RuntimeError):
                     notify.pushplus("test", ["body"])
+
+    def test_half_hour_schedule_includes_both_endpoints(self):
+        import re
+        workflow = (monitor.ROOT / ".github/workflows/monitor.yml").read_text(encoding="utf-8")
+        slots = re.findall(r"^\s*- cron: '([^']+)'", workflow, re.M)
+        planned = []
+        for cron in slots:
+            minute, hours, *days = cron.split()
+            self.assertEqual(days, ["*", "*", "1-5"])
+            span = [int(h) for h in hours.split("-")]
+            planned.extend((h + 8) * 60 + int(minute) for h in range(span[0], span[-1] + 1))
+        self.assertEqual(sorted(planned), list(range(8 * 60, 14 * 60 + 31, 30)))
+        self.assertIn("github.event.schedule == '30 6 * * 1-5' && 'scheduled-final'", workflow)
+
+    def test_scheduled_mode_only_reports_new_buy_points_until_1430(self):
+        item = ITEMS["sh600900"]
+        for hour, minute, allow in ((8, 0, False), (11, 40, False), (14, 30, True), (14, 31, False)):
+            instant = NOW.replace(hour=hour, minute=minute, second=40)
+            data = {"quotes": {k: quote(27, instant) for k in ("sh000001", item["code"])}}
+            snap = monitor.build([item], data, instant)
+            self.assertEqual(bool(notify.delivery(snap, instant, "scheduled", set())), allow)
+            self.assertIsNone(notify.delivery(snap, instant, "scheduled", {"sh600900/first"}))
+        blocked = monitor.build([ITEMS["sh513530"]], fixture("sh513530", quote(1.3, iopv=1.2)), NOW)
+        self.assertIsNone(notify.delivery(blocked, NOW, "scheduled", set()))
+        self.assertEqual(local_scan.live_report(blocked, NOW)["events"], [])
+
+    def test_local_scan_keeps_hk_open_after_cn_close_and_caps_expiry(self):
+        near = NOW.replace(hour=14, minute=59, second=56)
+        after = near.replace(hour=15, minute=2)
+        both = [ITEMS["sh600900"], ITEMS["hk00883"]]
+        data = {"quotes": {k: quote(15, near) for k in ("sh000001", "hkHSI", "sh600900", "hk00883")}}
+        snapshot = monitor.build(both, data, near)
+        events = local_scan.live_report(snapshot, near)["events"]
+        mainland = next(e for e in events if "sh600900/second" in e["keys"])
+        self.assertEqual(datetime.fromisoformat(mainland["expires"]).minute, 0)
+        self.assertEqual(mainland["covers"], ["sh600900/first"])
+        remaining = local_scan.live_report(snapshot, after)["events"]
+        self.assertEqual([e["keys"] for e in remaining], [["hk00883/second"]])
+
+    def test_last_queued_run_reports_only_before_1500_even_for_hk(self):
+        item = ITEMS["hk00883"]
+        for hour, minute, allow in ((14, 29, False), (14, 30, True), (14, 35, True), (14, 59, True), (15, 0, False)):
+            instant = NOW.replace(hour=hour, minute=minute)
+            data = {"quotes": {k: quote(19, instant) for k in ("hkHSI", item["code"])}}
+            snap = monitor.build([item], data, instant)
+            self.assertEqual(bool(notify.delivery(snap, instant, "scheduled-final", set())), allow)
+
+    def test_local_cache_reuses_only_reference_inputs_until_due(self):
+        items = [ITEMS["sh600900"]]
+        with tempfile.TemporaryDirectory() as td, patch.object(local_scan, "collect") as collect:
+            path = Path(td) / "refs.json"
+            collect.return_value = {"quotes": {"live": 1}, "history:sh000001": [["2026-11-23", 3000]]}
+            local_scan.collect_local(items, NOW, path)
+            local_scan.collect_local(items, NOW + timedelta(seconds=30), path)
+            self.assertEqual(set(collect.call_args.kwargs["references"]), {"history:sh000001"})
+            local_scan.collect_local(items, NOW + timedelta(minutes=15), path)
+            self.assertNotIn("references", collect.call_args.kwargs)
 
     def test_ntfy_uses_the_subscribed_topic_and_checks_receipt(self):
         config = {"NTFY_TOPIC": "fixture-topic", "NTFY_TOKEN": "fixture-token", "DASHBOARD_URL": "https://example.org/"}
