@@ -6,20 +6,22 @@ GitHub Actions 在盘中抓取行情、判断自定义价位与指标，并向�
 
 ## 开通通知
 
-打开仓库 **Settings → Secrets and variables → Actions → New repository secret**。可以同时启用邮件、微信和飞书，密钥仅填在仓库 Secrets 中。[打开 Secrets 设置](https://github.com/spbnb/dividend-watch/settings/secrets/actions)
+打开仓库 **Settings → Secrets and variables → Actions → New repository secret**。可以同时启用多个渠道，密钥仅填在仓库 Secrets 中。[打开 Secrets 设置](https://github.com/spbnb/dividend-watch/settings/secrets/actions)
 
 | 渠道 | Secret 名称 | 配置方法 |
 | --- | --- | --- |
 | 邮件 | `SMTP_HOST`、`SMTP_USER`、`SMTP_PASS`、`MAIL_TO` | 填发信服务器、发件邮箱、SMTP 授权码和收件地址。QQ 邮箱可用 `smtp.qq.com`。多个收件地址用英文逗号分隔。 |
 | 邮件端口 | `SMTP_PORT`（可选） | 默认 465，使用 SSL。服务商要求 STARTTLS 时填 587。 |
 | 微信 | `PUSHPLUS_TOKEN` | 在 PushPlus 用微信关注并绑定账号，填入一对一推送 token。[PushPlus](https://www.pushplus.plus/) |
+| ntfy.sh（安卓 / 网页） | `NTFY_TOPIC`，受保护主题可另填 `NTFY_TOKEN` | 在安卓应用或网页订阅同一主题，填入主题名或完整主题地址。公开主题的订阅者均能读到消息。[ntfy 网页版](https://ntfy.sh/app) |
+| WxPusher 个人推送 | `WXPUSHER_SPT` | 通过官方页面获取个人 `SPT_` 令牌，填入后即可接收推送。[获取个人 SPT](https://wxpusher.zjiecode.com/docs/spt.html) |
 | 飞书 | `FEISHU_WEBHOOK`，开启加签时另填 `FEISHU_SECRET` | 在接收消息的群添加自定义机器人，复制 Webhook 和签名密钥。使用关键词校验时，可设为“红利观察台”。[机器人配置指南](https://open.feishu.cn/document/client-docs/bot-v3/add-custom-bot) |
 
-在 **Actions → Dividend Watch → Run workflow** 选择 `test`，每个已配置渠道会收到一条测试消息。默认选项 `refresh` 只更新看板。发送结果记录在运行日志，服务商接受请求与终端实际收到消息可分别核对。
+在 **Actions → Dividend Watch → Run workflow** 选择 `test`，再选要测试的渠道。选 `all` 时会向每个已配置的渠道发送一条测试消息。默认选项 `refresh` 只更新看板。发送结果记录在运行日志，服务商接受请求与终端实际收到消息可分别核对。
 
 ## 巡检时间与规则
 
-北京时间周一至周五 **10:15、11:15、13:35、14:25** 计划巡检。最后一轮发全量日报。GitHub 的定时任务可能延迟或被丢弃，两次快照之间短暂越过目标价也可能错过。[GitHub 定时任务说明](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#schedule)
+北京时间周一至周五 **10:15、11:15、13:35、14:25** 计划巡检。最后一轮发全量日报。GitHub 的定时任务可能延迟或被丢弃，两次快照之间短暂越过目标价也可能错过。公开仓库连续 60 天没有活动时，GitHub 会停用定时工作流，可在 Actions 页重新启用。[GitHub 定时任务说明](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#schedule)
 
 - 价位和指标在 `watchlist.json` 中修改。首档、二档及各项阈值沿用建仓库时提供的配置。页面默认按 `(现价 / 首档 − 1) × 100%` 升序排列，可按市场筛选、搜索代码，点名称查看原始时间和命中条件。
 - 腾讯财经提供批量报价、前复权日 K 线，东方财富提供备用报价和指数行情。RSI(14) 使用 Wilder 平滑，盘中以最新价估算当日日线。MACD 柱仅供查看。512890 比较最近 60 个交易日（含当前）的最高收盘价，回撤超过 6% 或价格到档时列入观察。

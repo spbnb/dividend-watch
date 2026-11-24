@@ -7,6 +7,7 @@ import hmac
 import html
 import json
 import os
+import re
 import smtplib
 import ssl
 import sys
@@ -20,9 +21,9 @@ from market import CST
 from monitor import HITS, current, fresh, in_session
 
 
-def post_json(url, payload):
+def post_json(url, payload, headers=None):
     req = Request(url, data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
-                  headers={"Content-Type": "application/json; charset=utf-8"})
+                  headers={"Content-Type": "application/json; charset=utf-8", **(headers or {})})
     with urlopen(req, timeout=12) as response:
         return json.load(response)
 
@@ -46,6 +47,37 @@ def pushplus(title, lines):
                        "title": title, "content": "\n".join(lines), "template": "txt"})
     if result.get("code") != 200:
         raise RuntimeError("PushPlus rejected the message")
+
+
+def ntfy(title, lines):
+    topic = os.environ["NTFY_TOPIC"].strip().removeprefix("https://ntfy.sh/")
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", topic):
+        raise ValueError("Invalid ntfy topic")
+    text = "\n".join(lines)
+    if len(text.encode()) > 4000:
+        text = text.encode()[:3900].decode(errors="ignore") + "\n…完整内容见监控看板"
+    payload = {"topic": topic, "title": title, "message": text}
+    if os.getenv("DASHBOARD_URL"):
+        payload["click"] = os.environ["DASHBOARD_URL"]
+    token = os.getenv("NTFY_TOKEN")
+    receipt = post_json("https://ntfy.sh/", payload, {"Authorization": "Bearer " + token} if token else {})
+    if receipt.get("event") != "message" or receipt.get("topic") != topic or not receipt.get("id"):
+        raise RuntimeError("ntfy did not acknowledge the topic")
+
+
+def wxpusher(title, lines):
+    spt = os.environ["WXPUSHER_SPT"].strip()
+    if not re.fullmatch(r"SPT_[A-Za-z0-9_-]+", spt):
+        raise ValueError("Invalid personal SPT")
+    payload = {"spt": spt, "summary": title[:100], "content": "\n".join(lines), "contentType": 1}
+    if os.getenv("DASHBOARD_URL"):
+        payload["url"] = os.environ["DASHBOARD_URL"]
+    receipt = post_json("https://wxpusher.zjiecode.com/api/send/message/simple-push", payload)
+    targets = receipt.get("data")
+    rejected = isinstance(targets, list) and (not targets or any(
+        isinstance(t, dict) and t.get("code", 1000) != 1000 for t in targets))
+    if receipt.get("code") != 1000 or receipt.get("success") is False or rejected:
+        raise RuntimeError("WxPusher rejected the notification")
 
 
 def email(title, lines):
@@ -77,6 +109,10 @@ def configured_channels():
         channels["feishu"] = feishu
     if os.getenv("PUSHPLUS_TOKEN"):
         channels["pushplus"] = pushplus
+    if os.getenv("NTFY_TOPIC") or os.getenv("NTFY_TOKEN"):
+        channels["ntfy"] = ntfy
+    if os.getenv("WXPUSHER_SPT"):
+        channels["wxpusher"] = wxpusher
     if any(os.getenv(key) for key in ("SMTP_HOST", "SMTP_USER", "SMTP_PASS", "MAIL_TO")):
         channels["email"] = email
     return channels
@@ -172,12 +208,15 @@ def send_all(snapshot, mode, path, channels, clock=lambda: datetime.now(CST)):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--mode", choices=("alerts", "tail", "test"), default="alerts")
+    parser.add_argument("--channel", choices=("all", "ntfy", "wxpusher", "feishu", "pushplus", "email"), default="all")
     parser.add_argument("--snapshot", type=Path, default=Path("docs/snapshot.json"))
     parser.add_argument("--state", type=Path, default=Path(".monitor-state/sent.json"))
     args = parser.parse_args()
     channels = configured_channels()
+    if args.mode == "test" and args.channel != "all":
+        channels = {k: v for k, v in channels.items() if k == args.channel}
     if not channels:
-        print("::notice::尚未配置通知渠道。请在仓库 Actions Secrets 中设置飞书、PushPlus 或 SMTP。")
+        print("::notice::所选渠道尚未配置。请检查仓库 Actions Secrets。")
         return 1 if args.mode == "test" else 0
     snapshot = {} if args.mode == "test" else json.loads(args.snapshot.read_text(encoding="utf-8"))
     changed, errors = send_all(snapshot, args.mode, args.state, channels)

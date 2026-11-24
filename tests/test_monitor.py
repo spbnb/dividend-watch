@@ -142,6 +142,34 @@ class RuleTests(unittest.TestCase):
                 with self.assertRaises(RuntimeError):
                     notify.pushplus("test", ["body"])
 
+    def test_ntfy_uses_the_subscribed_topic_and_checks_receipt(self):
+        config = {"NTFY_TOPIC": "fixture-topic", "NTFY_TOKEN": "fixture-token", "DASHBOARD_URL": "https://example.org/"}
+        with patch.dict("os.environ", config, clear=True):
+            with patch.object(notify, "post_json", return_value={"id": "123", "event": "message", "topic": "fixture-topic"}) as post:
+                notify.ntfy("测试", ["通知" * 1000])
+                url, body, headers = post.call_args.args
+                self.assertEqual(url, "https://ntfy.sh/")
+                self.assertEqual(headers["Authorization"], "Bearer fixture-token")
+                self.assertEqual(body["click"], config["DASHBOARD_URL"])
+                self.assertLessEqual(len(body["message"].encode()), 4096)
+            with patch.object(notify, "post_json", return_value={"id": "123", "event": "message", "topic": "wrong"}):
+                with self.assertRaises(RuntimeError):
+                    notify.ntfy("测试", ["通知"])
+
+    def test_wxpusher_and_ntfy_are_independently_configurable(self):
+        with patch.dict("os.environ", {"WXPUSHER_SPT": "SPT_test_only"}, clear=True):
+            self.assertEqual(list(notify.configured_channels()), ["wxpusher"])
+            with patch.object(notify, "post_json", return_value={"code": 1000, "data": [{"code": 1000}]}) as post:
+                notify.wxpusher("测试", ["正文"])
+                url, body = post.call_args.args
+                self.assertEqual(url, "https://wxpusher.zjiecode.com/api/send/message/simple-push")
+                self.assertEqual(body["spt"], "SPT_test_only")
+            with patch.object(notify, "post_json", return_value={"code": 1000, "data": [{"code": 1001}]}):
+                with self.assertRaises(RuntimeError):
+                    notify.wxpusher("测试", ["正文"])
+        with patch.dict("os.environ", {"NTFY_TOPIC": "fixture-topic"}, clear=True):
+            self.assertEqual(list(notify.configured_channels()), ["ntfy"])
+
 
 if __name__ == "__main__":
     unittest.main()
