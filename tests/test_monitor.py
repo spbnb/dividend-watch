@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from unittest.mock import patch
 
+import alert_format
 import market
 import local_scan
 import monitor
@@ -35,6 +36,65 @@ class RuleTests(unittest.TestCase):
         snap = monitor.build(list(ITEMS.values()), data, NOW)
         self.assertEqual((11, 12), (snap["groups"], len(snap["rows"])))
         self.assertEqual({"CNY", "HKD"}, {r["currency"] for r in snap["rows"] if r.get("group") == "cnooc"})
+        for row in snap["rows"]:
+            self.assertEqual((row["rsi_max"], row["rsi_second_max"], row["rsi7_max"], row["rsi7_second_max"]),
+                             (35, 30, 25, 20), row["code"])
+
+    def test_all_listed_stocks_can_send_rsi_alerts_on_their_own_exchange(self):
+        for item in (i for i in ITEMS.values() if i["type"] in {"A 股", "港股"}):
+            with self.subTest(code=item["code"]):
+                code, price = item["code"], item["first"] + 2
+                dates = [(NOW.date() - timedelta(days=n)).isoformat() for n in range(25, 0, -1)]
+                data = fixture(code, quote(price))
+                # The last mainland trading day can differ from Hong Kong's.
+                hk_bars = [(d, 25000) for d in dates[:-1]] + [(NOW.date().isoformat(), 25001)]
+                data["history:hkHSI"] = hk_bars
+                data["history:sh000001"] = [(d, 3000) for d in dates] + [(NOW.date().isoformat(), 3001)]
+                own_dates = dates[:-1] if code.startswith("hk") else dates
+                data["history:" + code] = [(d, price + len(own_dates) - n) for n, d in enumerate(own_dates)]
+                snap = monitor.build([item], data, NOW)
+                self.assertEqual((snap["rows"][0]["rsi"], snap["rows"][0]["rsi7"]), (0, 0))
+                self.assertEqual(local_scan.live_report(snap, NOW)["events"][0]["keys"],
+                                 [code + "/rsi7_second", code + "/rsi_second"])
+                self.assertIsNotNone(notify.delivery(snap, NOW, "scheduled", set()))
+                data["history:" + code].pop()
+                self.assertEqual(monitor.evaluate(item, data, NOW)["status"], "partial")
+
+    def test_h_share_uses_adjusted_hong_kong_bars(self):
+        code = "hk00883"
+        payload = {"day": [["2026-11-23", "21", "21.5"]], "qfqday": [["2026-11-23", "20", "20.5"]]}
+        with patch.object(market, "read", return_value=json.dumps({"data": {code: payload}})) as fetch:
+            self.assertEqual(market.history(code), [("2026-11-23", 20.5)])
+            self.assertIn("/hkfqkline/get?", fetch.call_args.args[0])
+            fetch.return_value = json.dumps({"data": {code: {"day": payload["day"]}}})
+            self.assertEqual(market.history(code), [])
+
+    def test_fund_rsi_uses_distribution_adjusted_returns_and_only_one_intraday_tick(self):
+        item = ITEMS["012708"]
+        dates = [NOW - timedelta(days=n) for n in range(45, -1, -1)]
+        records = [{"x": int(d.timestamp() * 1000), "y": 1.6 if d < NOW else 1.38, "equityReturn": 1}
+                   for d in dates]
+        raw = 'var fS_code = "012708"; var Data_netWorthTrend = ' + json.dumps(records) + ';'
+        with patch.object(market, "read", return_value=raw):
+            bars = market.fund_history("012708")
+            self.assertEqual(market.fund_history("012709"), [])
+        data = fixture("csi931446", quote(3100, pct=-1.6))
+        data["history:sh000001"] = [(d.date().isoformat(), 3000) for d in dates]
+        data["history:012708"] = bars
+        data["estimate:012708"] = quote(1.38, pct=0.5)
+        closes = monitor.indicator_closes(item, data, data["estimate:012708"], "CN")
+        self.assertEqual(len(closes), len(bars))
+        self.assertAlmostEqual(closes[-1], bars[-2][1] * 1.005)
+        row = monitor.evaluate(item, data, NOW)
+        self.assertAlmostEqual(row["rsi"], 100)
+        self.assertAlmostEqual(row["rsi7"], 100)
+        self.assertEqual(row["signals"], ["index"])
+        data["estimate:012708"] = quote(1.38, pct=None)
+        self.assertIsNone(monitor.evaluate(item, data, NOW)["rsi"])
+        data["nav:012708"] = {NOW.date().isoformat(): {"price": 1.38, "pct": None}}
+        official = monitor.evaluate(item, data, NOW.replace(hour=17))
+        self.assertAlmostEqual(official["rsi7"], 100)
+        self.assertEqual(monitor.hit_label(["rsi7_second", "index"]), "RSI 预警 · 二档 / 指数跌幅 · 首档")
 
     def test_premium_boundaries_and_missing_iopv(self):
         item = ITEMS["sh513530"]
@@ -142,6 +202,41 @@ class RuleTests(unittest.TestCase):
         packet = notify.delivery(snap, later, "scheduled", set())
         self.assertEqual(packet[2], {code + "/index", code + "/index_second"})
         self.assertNotIn("估算净值到达二档", " ".join(packet[1]))
+        self.assertIn("当前估值待更新", "\n".join(packet[1]))
+        self.assertNotIn("还需跌", "\n".join(packet[1]))
+        self.assertIn("指数跌幅二档", packet[0])
+
+    def test_phone_cards_distinguish_rsi_from_price_and_use_current_price_for_distance(self):
+        data = fixture("hk00883", quote(21.08))
+        data["quotes"]["sh600938"] = quote(29.56)
+        snap = monitor.build([ITEMS["sh600938"], ITEMS["hk00883"]], data, NOW)
+        by_code = {r["code"]: r for r in snap["rows"]}
+        a, h = by_code["sh600938"], by_code["hk00883"]
+        a.update(status="signal", rsi=34.71, signals=["rsi"])
+        h.update(status="signal", rsi=28.74, rsi7=21.76, signals=["rsi_second", "rsi7"])
+        title, blocks, _ = notify.delivery(snap, NOW, "scheduled", set())
+        self.assertEqual(title, "海油 A/H｜RSI 触发，均未到首档 · GitHub")
+        self.assertTrue(blocks[0].startswith("中国海油 H 股 · 00883.HK\n"))
+        self.assertIn("1.08 港元（5.12%）", blocks[0])
+        self.assertIn("2.56 元（8.66%）", blocks[1])
+        self.assertIn("首档 20.00 · 二档 18.50 港元", blocks[0])
+        self.assertIn("RSI(14) 二档　28.74 ≤ 30\nRSI(7) 首档　21.76 ≤ 25", blocks[0])
+        html = alert_format.mobile_html(blocks)
+        self.assertEqual(html.count("border-left:"), 2)
+        self.assertNotIn(title, html)
+        self.assertIn("甲&lt;乙 &amp; 丙", alert_format.mobile_html(["甲<乙 & 丙\n现价 1"]))
+        self.assertEqual(alert_format.plain_body([blocks[0], blocks[1]], len((blocks[0] + "\n\n…其余内容见监控看板").encode())),
+                         blocks[0] + "\n\n…其余内容见监控看板")
+        h.update(price=19.50, signals=["first", "rsi_second", "rsi7"], status="first")
+        before = {"sh600938/rsi", "hk00883/first", "hk00883/rsi7"}
+        title, blocks, _ = notify.delivery(snap, NOW, "scheduled", before)
+        self.assertEqual(title, "中国海油 H 股｜RSI 触发 · GitHub")
+        self.assertIn("现价 19.50 港元 · 已到首档", blocks[0])
+        self.assertNotIn("RSI(7)", blocks[0])
+        h.update(price=18.50, signals=["second", "rsi_second", "rsi7"], status="second")
+        title, blocks, _ = notify.delivery(snap, NOW, "scheduled", before)
+        self.assertIn("价格到二档", title)
+        self.assertIn("价格到达二档", blocks[0])
 
     def test_cloud_reserves_before_send_and_retries_only_definite_rejections(self):
         code = "sh600900"
@@ -170,12 +265,12 @@ class RuleTests(unittest.TestCase):
             self.assertEqual(run("reserve"), (False, []))
             self.assertEqual(calls, ["ntfy", "wxpusher", "wxpusher"])
 
-    def test_observe_only_drawdown(self):
+    def test_observe_only_drawdown_and_rsi(self):
         bars = [((NOW.date() - timedelta(days=n)).isoformat(), 2.0) for n in range(65, -1, -1)]
         data = fixture("sh512890", quote(1.7))
         data.update({"history:sh000001": bars, "history:sh512890": bars})
         r = monitor.evaluate(ITEMS["sh512890"], data, NOW)
-        self.assertEqual((r["status"], r["signals"]), ("observe_hit", ["drawdown"]))
+        self.assertEqual((r["status"], r["signals"]), ("observe_hit", ["rsi_second", "rsi7_second", "drawdown"]))
         self.assertFalse(notify.event_keys(r, NOW, {"CN": quote()}))
 
     def test_receipts_are_independent_and_deeper_level_escalates(self):
@@ -305,6 +400,8 @@ class RuleTests(unittest.TestCase):
                 url, body = post.call_args.args
                 self.assertEqual(url, "https://wxpusher.zjiecode.com/api/send/message/simple-push")
                 self.assertEqual(body["spt"], "SPT_test_only")
+                self.assertEqual((body["contentType"], body["summary"]), (2, "测试"))
+                self.assertIn("正文", body["content"])
             with patch.object(notify, "post_json", return_value={"code": 1000, "data": [{"code": 1001}]}):
                 with self.assertRaises(RuntimeError):
                     notify.wxpusher("测试", ["正文"])

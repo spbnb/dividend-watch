@@ -110,14 +110,48 @@ def eastmoney_quotes(codes):
 
 def history(code):
     query = urlencode({"param": f"{code},day,,,110,qfq"})
-    url = "https://web.ifzq.gtimg.cn/appstock/app/fqkline/get?" + query
+    # The mainland endpoint silently returns unadjusted bars for Hong Kong stocks.
+    hk_stock = code.startswith("hk") and code != BENCHMARKS["HK"]
+    endpoint = "hkfqkline" if hk_stock else "fqkline"
+    url = f"https://web.ifzq.gtimg.cn/appstock/app/{endpoint}/get?" + query
     data = json.loads(read(url))["data"][code]
-    bars = data.get("qfqday") or data.get("day") or []
+    bars = data.get("qfqday") or ([] if hk_stock else data.get("day", []))
     closes = {}
     for bar in bars:
         if isinstance(bar, list) and len(bar) >= 3 and number(bar[2], positive=True):
             closes[date.fromisoformat(bar[0]).isoformat()] = float(bar[2])
     return sorted(closes.items())
+
+
+def fund_history(code):
+    """Build a comparable daily series from published NAV returns, including distributions."""
+    raw = read(f"https://fund.eastmoney.com/pingzhongdata/{code}.js", referer="https://fund.eastmoney.com/")
+    identity = re.search(r'\bvar\s+fS_code\s*=\s*"([0-9]+)"', raw)
+    trend = re.search(r"\bvar\s+Data_netWorthTrend\s*=\s*(\[.*?\])\s*;", raw, re.S)
+    if not identity or identity[1] != code or not trend:
+        return []
+    returns = {}
+    for entry in json.loads(trend[1]):
+        if not isinstance(entry, dict):
+            continue
+        stamp = number(entry.get("x"), positive=True)
+        if stamp is not None:
+            try:
+                day = datetime.fromtimestamp(stamp / 1000, CST).date().isoformat()
+            except (OSError, OverflowError, ValueError):
+                continue
+            returns[day] = (number(entry.get("equityReturn"))
+                            if number(entry.get("y"), positive=True) else None)
+    bars = []
+    level = 1.0
+    for day, change in sorted(returns.items())[-110:]:
+        if change is None or change <= -100:
+            bars.clear()
+            level = 1.0
+            continue
+        level *= 1 + change / 100
+        bars.append((day, level))
+    return bars
 
 
 def estimate(code):
@@ -177,12 +211,14 @@ def collect(watchlist, today, *, references=None):
     codes = exchange + list(BENCHMARKS.values())
     jobs = {"primary": (tencent_quotes, codes, etfs),
             "backup": (eastmoney_quotes, codes + ["csi" + i["index"] for i in funds])}
-    for code in sorted(etfs | {BENCHMARKS["CN"]}):
+    for code in sorted(set(exchange).union(BENCHMARKS.values())):
         jobs["history:" + code] = (history, code)
     for item in funds:
         code = item["code"]
         jobs["estimate:" + code] = (estimate, code)
         jobs["nav:" + code] = (reported_navs, code)
+        if item.get("rsi_max") is not None or item.get("rsi7_max") is not None:
+            jobs["history:" + code] = (fund_history, code)
     for item in watchlist:
         if item.get("yield_min"):
             jobs["cash:" + item["code"]] = (dividends, item["code"], today)

@@ -9,9 +9,10 @@ import tempfile
 from datetime import datetime, timedelta
 from pathlib import Path
 
+from alert_format import alert_card
 from market import CST, collect
 from monitor import ROOT, build, session_end
-from notify import covered_keys, event_keys, line_for, signal_time
+from notify import covered_keys, event_keys, signal_time
 
 
 def collect_local(items, now, cache_path):
@@ -22,15 +23,17 @@ def collect_local(items, now, cache_path):
         reusable = timedelta(0) <= now - checked < timedelta(minutes=15)
     except (FileNotFoundError, ValueError, KeyError, TypeError):
         references, reusable = {}, False
-    if reusable and references:
-        return collect(items, now.date(), references=references)
-    data = collect(items, now.date())
+    using_cache = bool(reusable and references)
+    data = collect(items, now.date(), references=references) if using_cache else collect(items, now.date())
     # Keep same-day reference data if an occasional history request fails.
-    references.update({k: v for k, v in data.items() if k.startswith(("history:", "nav:", "cash:")) and v})
+    observed = {k: v for k, v in data.items() if k.startswith(("history:", "nav:", "cash:")) and v}
+    if using_cache and observed.keys() <= references.keys():
+        return data
+    references.update(observed)
     data.update(references)
     cache_path.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=cache_path.parent, delete=False) as f:
-        json.dump({"checked": now.isoformat(), "references": references}, f)
+        json.dump({"checked": (checked if using_cache else now).isoformat(), "references": references}, f)
     try:
         os.replace(f.name, cache_path)
     finally:
@@ -69,7 +72,7 @@ def live_report(snapshot, now):
         expires = min([session_end(now, market)] +
                       [datetime.fromisoformat(t) + timedelta(minutes=25) for t in stamps])
         events.append({"keys": sorted(keys), "covers": sorted(covered_keys(keys)), "expires": expires.isoformat(),
-                       "line": line_for(row, keys) + "｜行情 " + max(event_stamps)[11:19]})
+                       "row": row, "line": alert_card(row, {k.split("/", 1)[1] for k in keys}, now)})
     return {"day": now.date().isoformat(), "checked": now.isoformat(timespec="seconds"),
             "groups": snapshot["groups"], "total": len(snapshot["rows"]),
             "priced": sum(r["price"] is not None for r in snapshot["rows"]),

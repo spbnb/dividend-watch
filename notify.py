@@ -4,7 +4,6 @@ import argparse
 import base64
 import hashlib
 import hmac
-import html
 import json
 import os
 import re
@@ -17,8 +16,9 @@ from email.message import EmailMessage
 from pathlib import Path
 from urllib.request import Request, urlopen
 
+from alert_format import format_alerts, mobile_html, plain_body
 from market import CST
-from monitor import HITS, current, fresh, hit_label, in_session
+from monitor import HITS, current, fresh, in_session
 
 
 class DeliveryRejected(RuntimeError):
@@ -35,7 +35,7 @@ def post_json(url, payload, headers=None):
 def feishu(title, lines):
     payload = {"msg_type": "interactive", "card": {
         "header": {"title": {"tag": "plain_text", "content": title}, "template": "green"},
-        "elements": [{"tag": "div", "text": {"tag": "plain_text", "content": "\n".join(lines)}}]}}
+        "elements": [{"tag": "div", "text": {"tag": "plain_text", "content": plain_body(lines)}}]}}
     secret = os.getenv("FEISHU_SECRET")
     if secret:
         ts = str(int(time.time()))
@@ -51,7 +51,7 @@ def feishu(title, lines):
 
 def pushplus(title, lines):
     result = post_json("https://www.pushplus.plus/send", {"token": os.environ["PUSHPLUS_TOKEN"],
-                       "title": title, "content": "\n".join(lines), "template": "txt"})
+                       "title": title, "content": plain_body(lines), "template": "txt"})
     if result.get("code") is None:
         raise RuntimeError("PushPlus acknowledgement missing")
     if result["code"] != 200:
@@ -62,10 +62,7 @@ def ntfy(title, lines):
     topic = os.environ["NTFY_TOPIC"].strip().removeprefix("https://ntfy.sh/")
     if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", topic):
         raise ValueError("Invalid ntfy topic")
-    text = "\n".join(lines)
-    if len(text.encode()) > 4000:
-        text = text.encode()[:3900].decode(errors="ignore") + "\n…完整内容见监控看板"
-    payload = {"topic": topic, "title": title, "message": text}
+    payload = {"topic": topic, "title": title, "message": plain_body(lines, 4000)}
     if os.getenv("DASHBOARD_URL"):
         payload["click"] = os.environ["DASHBOARD_URL"]
     token = os.getenv("NTFY_TOKEN")
@@ -78,7 +75,7 @@ def wxpusher(title, lines):
     spt = os.environ["WXPUSHER_SPT"].strip()
     if not re.fullmatch(r"SPT_[A-Za-z0-9_-]+", spt):
         raise ValueError("Invalid personal SPT")
-    payload = {"spt": spt, "summary": title[:100], "content": "\n".join(lines), "contentType": 1}
+    payload = {"spt": spt, "summary": title[:100], "content": mobile_html(lines), "contentType": 2}
     if os.getenv("DASHBOARD_URL"):
         payload["url"] = os.environ["DASHBOARD_URL"]
     receipt = post_json("https://wxpusher.zjiecode.com/api/send/message/simple-push", payload)
@@ -97,9 +94,8 @@ def email(title, lines):
     port = int(os.getenv("SMTP_PORT") or "465")
     msg = EmailMessage()
     msg["From"], msg["To"], msg["Subject"] = sender, ", ".join(recipients), title
-    msg.set_content("\n".join(lines))
-    blocks = "".join(f"<p>{html.escape(line)}</p>" for line in lines if line)
-    msg.add_alternative(f'<html lang="zh-CN"><body><h2>{html.escape(title)}</h2>{blocks}</body></html>',
+    msg.set_content(plain_body(lines))
+    msg.add_alternative(f'<html lang="zh-CN"><body>{mobile_html(lines)}</body></html>',
                         subtype="html")
     tls = ssl.create_default_context()
     if port == 465:
@@ -155,18 +151,13 @@ def event_keys(row, now, benchmarks):
     return set()
 
 
-def line_for(row, keys=None):
+def line_for(row):
+    """Compact level listing for the optional end-of-day review."""
     digits = 4 if row.get("index") else (3 if row["type"] == "ETF" else 2)
     price = f"{row['price']:.{digits}f} {row['currency']}" if row["price"] else "暂无"
     label = row["label"]
     reasons = row["reasons"]
-    if keys is not None:
-        selected = [s for s in row["signals"] if row["code"] + "/" + s in keys]
-        label = hit_label(selected)
-        reasons = [reason for s, reason in zip(row["signals"], reasons) if s in selected]
     details = "、".join(reasons)
-    if keys is not None and any("/rsi" in k for k in keys) and row.get("gap") is not None:
-        details += f"，盘中日线暂估，距价格首档 {row['gap']:+.2f}%"
     if row.get("premium_max") is not None and row.get("premium") is not None and row["status"] in HITS:
         details += f"，盘中溢价 {row['premium']:.2f}%"
     if row["status"] == "blocked":
@@ -190,28 +181,28 @@ def delivery(snapshot, now, mode, sent):
     benchmarks = snapshot["benchmarks"]
     summary = (mode == "tail" and "summary" not in sent and now.weekday() < 5
                and now.hour * 60 + now.minute >= 14 * 60 + 20 and current(benchmarks.get("CN"), now, "CN"))
-    rows, keys = [], set()
+    events, keys = [], set()
     for row in snapshot["rows"]:
         active = event_keys(row, now, benchmarks)
         if active - sent:
-            rows.append(line_for(row, active - sent))
+            events.append({"row": row, "keys": active - sent})
             keys.update(active)
             keys.update(covered_keys(active))
     if summary:
         keys.add("summary")
     if not keys:
         return None
-    title = "收盘后复盘" if summary and now.hour >= 15 else "尾盘巡检" if summary else "阈值提醒"
-    lines = [f"北京时间 {now:%Y-%m-%d %H:%M}"]
-    if rows:
-        lines += ["", "新触发"] + rows
+    if events:
+        title, lines = format_alerts(events, now, "GitHub" if mode.startswith("scheduled") else "红利观察台")
     if summary:
-        lines += ["", "全部监控水位"] + [line_for(r) for r in snapshot["rows"]]
+        title = "红利观察台 · " + ("收盘后复盘" if now.hour >= 15 else "尾盘巡检")
+        if not events:
+            lines = [f"北京时间 {now:%Y-%m-%d %H:%M}"]
+        lines += ["全部监控水位"] + [line_for(r) for r in snapshot["rows"]]
     link = os.getenv("DASHBOARD_URL")
     if link:
-        lines.extend(["", link])
-    source = "GitHub " if mode.startswith("scheduled") else ""
-    return f"红利观察台 · {source}{title}", lines, keys
+        lines.append(link)
+    return title, lines, keys
 
 
 def send_all(snapshot, mode, path, channels, clock=lambda: datetime.now(CST)):

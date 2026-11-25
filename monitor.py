@@ -59,8 +59,9 @@ def with_tick(bars, quote):
     return [bar for bar in bars if bar[0] < day] + [(day, quote["price"])]
 
 
-def previous_session(data, day):
-    bars = data.get("history:sh000001", [])
+def previous_session(data, day, market="CN"):
+    benchmark = BENCHMARKS[market]
+    bars = data.get("history:" + benchmark, [])
     older = [(d, v) for d, v in bars if d < day]
     if not older:
         return None
@@ -68,7 +69,7 @@ def previous_session(data, day):
         return older[-1][0]
     # Some intraday feeds append today's bar only after the close. In that
     # case verify the last historical close against today's benchmark quote.
-    index = data["quotes"].get(BENCHMARKS["CN"]) or {}
+    index = data["quotes"].get(benchmark) or {}
     close = index.get("prev_close")
     if index.get("at", "")[:10] == day and close and abs(older[-1][1] - close) < 0.005:
         return older[-1][0]
@@ -85,6 +86,28 @@ def wilder_rsi(closes, period=14):
         gain = (gain * (period - 1) + max(d, 0)) / period
         loss = (loss * (period - 1) + max(-d, 0)) / period
     return 100 * gain / (gain + loss) if gain + loss else 50.0
+
+
+def indicator_closes(item, data, quote, market):
+    at = quote["at"]
+    day = at[:10]
+    bars = data.get("history:" + item["code"], [])
+    prior = [(d, value) for d, value in bars if d < day]
+    if not prior or prior[-1][0] != previous_session(data, day, market):
+        return []
+    closes = [value for _, value in prior]
+    if item["type"] == "场外基金":
+        # Latest unit NAV and the compounded return series have different scales.
+        published = next((value for d, value in bars if d == day), None) if len(at) == 10 else None
+        if published is not None:
+            closes.append(published)
+        elif quote.get("pct") is not None and quote["pct"] > -100:
+            closes.append(closes[-1] * (1 + quote["pct"] / 100))
+        else:
+            return []
+    else:
+        closes.append(quote["price"])
+    return closes
 
 
 def macd_histogram(closes):
@@ -114,9 +137,13 @@ def hit_label(signals):
         return LABELS["second"]
     if "first" in signals:
         return LABELS["first"]
-    name = "指数跌幅" if any(k.startswith("index") for k in signals) else "RSI 预警"
-    tier = "二档" if any(k.endswith("_second") for k in signals) else "首档"
-    return f"{name} · {tier}"
+    labels = []
+    for prefix, name in (("rsi", "RSI 预警"), ("index", "指数跌幅")):
+        matches = [key for key in signals if key.startswith(prefix)]
+        if matches:
+            tier = "二档" if any(key.endswith("_second") for key in matches) else "首档"
+            labels.append(f"{name} · {tier}")
+    return " / ".join(labels) or LABELS["signal"]
 
 
 def fund_quote(item, data, now):
@@ -167,15 +194,13 @@ def evaluate(item, data, now):
         cash = data.get("cash:" + code)
         if cash:
             row["yield_pct"] = 100 * cash / price
-        bars = data.get("history:" + code, [])
-        # A cached series ending before the last session must not generate an indicator signal.
-        previous = previous_session(data, at[:10])
-        if previous and any(d == previous for d, _ in bars):
-            closes = [v for _, v in with_tick(bars, q)]
+        closes = indicator_closes(item, data, q, market)
+        if closes:
             row["rsi"] = wilder_rsi(closes)
             if item.get("rsi7_max") is not None:
                 row["rsi7"] = wilder_rsi(closes, 7)
-            row["macd"] = macd_histogram(closes)
+            if item["type"] == "ETF":
+                row["macd"] = macd_histogram(closes)
             window = item.get("drawdown_days")
             if window and len(closes) >= window:
                 row["drawdown"] = (price / max(closes[-window:]) - 1) * 100
