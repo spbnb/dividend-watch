@@ -16,6 +16,8 @@ import notify
 
 NOW = datetime(2026, 11, 24, 14, 25, tzinfo=market.CST)
 ITEMS = {i["code"]: i for i in json.loads((monitor.ROOT / "watchlist.json").read_text(encoding="utf-8"))}
+# Historical H-share example used to exercise HK market hours and notification formatting.
+HK_EXAMPLE = dict(ITEMS["sh600938"], code="hk00883", name="中国海油 H", type="港股", first=20.00, second=18.50)
 
 
 def quote(price=1, at=NOW, **values):
@@ -30,12 +32,15 @@ def fixture(code, q=None, **extra):
 
 
 class RuleTests(unittest.TestCase):
-    def test_11_groups_with_separate_currencies(self):
+    def test_watchlist_includes_cash_flow_etf_and_only_the_a_share_of_cnooc(self):
         data = fixture("sh600938", quote(27))
         data["quotes"]["hk00883"] = quote(20)
         snap = monitor.build(list(ITEMS.values()), data, NOW)
-        self.assertEqual((11, 12), (snap["groups"], len(snap["rows"])))
-        self.assertEqual({"CNY", "HKD"}, {r["currency"] for r in snap["rows"] if r.get("group") == "cnooc"})
+        self.assertEqual((12, 12), (snap["groups"], len(snap["rows"])))
+        codes = {r["code"] for r in snap["rows"]}
+        self.assertIn("sh600938", codes)
+        self.assertIn("sz159201", codes)
+        self.assertNotIn("hk00883", codes)
         for row in snap["rows"]:
             self.assertEqual((row["rsi_max"], row["rsi_second_max"], row["rsi7_max"], row["rsi7_second_max"]),
                              (35, 30, 25, 20), row["code"])
@@ -108,6 +113,22 @@ class RuleTests(unittest.TestCase):
         data["quotes"].update(hkHSI=quote(at=NOW - timedelta(days=1)), sh600036=quote(41))
         self.assertEqual(monitor.evaluate(ITEMS["sz159545"], data, NOW)["status"], "verify")
         self.assertEqual(monitor.evaluate(ITEMS["sh600036"], data, NOW)["status"], "first")
+
+    def test_domestic_cash_flow_etf_alerts_at_price_tiers_without_hk_quotes(self):
+        item = ITEMS["sz159201"]
+        for field in ("first", "second"):
+            with self.subTest(tier=field):
+                data = fixture(item["code"], quote(item[field]))
+                del data["quotes"]["hkHSI"]
+                snap = monitor.build([item], data, NOW)
+                key = item["code"] + "/" + field
+                self.assertEqual(local_scan.live_report(snap, NOW)["events"][0]["keys"], [key])
+                _, cards, keys = notify.delivery(snap, NOW, "scheduled", set())
+                self.assertIn(key, keys)
+                self.assertIn("折溢价 待更新（仅观察）", cards[0])
+                data["quotes"][item["code"]]["iopv"] = item[field] / 1.02
+                snap = monitor.build([item], data, NOW)
+                self.assertIn("折溢价 +2.00%（仅观察）", notify.delivery(snap, NOW, "scheduled", set())[1][0])
 
     def test_stale_suspended_and_future_rows_never_hit(self):
         for q in (quote(20, NOW - timedelta(days=1)), quote(20, NOW - timedelta(minutes=26)),
@@ -209,7 +230,7 @@ class RuleTests(unittest.TestCase):
     def test_phone_cards_distinguish_rsi_from_price_and_use_current_price_for_distance(self):
         data = fixture("hk00883", quote(21.08))
         data["quotes"]["sh600938"] = quote(29.56)
-        snap = monitor.build([ITEMS["sh600938"], ITEMS["hk00883"]], data, NOW)
+        snap = monitor.build([ITEMS["sh600938"], HK_EXAMPLE], data, NOW)
         by_code = {r["code"]: r for r in snap["rows"]}
         a, h = by_code["sh600938"], by_code["hk00883"]
         a.update(status="signal", rsi=34.71, signals=["rsi"])
@@ -297,7 +318,7 @@ class RuleTests(unittest.TestCase):
     def test_per_channel_cutoff_and_late_summary(self):
         first, later = NOW.replace(hour=14, minute=59), NOW.replace(hour=15, minute=1)
         data = {"quotes": {k: quote(at=first) for k in ("sh000001", "hkHSI", "sh600900", "hk00883")}}
-        snap = monitor.build([ITEMS["sh600900"], ITEMS["hk00883"]], data, first)
+        snap = monitor.build([ITEMS["sh600900"], HK_EXAMPLE], data, first)
         times, received = iter([first, first, later]), []
         with tempfile.TemporaryDirectory() as td:
             send = lambda title, body: received.append((title, body))
@@ -349,7 +370,7 @@ class RuleTests(unittest.TestCase):
     def test_local_scan_keeps_hk_open_after_cn_close_and_caps_expiry(self):
         near = NOW.replace(hour=14, minute=59, second=56)
         after = near.replace(hour=15, minute=2)
-        both = [ITEMS["sh600900"], ITEMS["hk00883"]]
+        both = [ITEMS["sh600900"], HK_EXAMPLE]
         data = {"quotes": {k: quote(15, near) for k in ("sh000001", "hkHSI", "sh600900", "hk00883")}}
         snapshot = monitor.build(both, data, near)
         events = local_scan.live_report(snapshot, near)["events"]
@@ -360,7 +381,7 @@ class RuleTests(unittest.TestCase):
         self.assertEqual([e["keys"] for e in remaining], [["hk00883/second"]])
 
     def test_last_queued_run_reports_only_before_1500_even_for_hk(self):
-        item = ITEMS["hk00883"]
+        item = HK_EXAMPLE
         for hour, minute, allow in ((14, 29, False), (14, 30, True), (14, 35, True), (14, 59, True), (15, 0, False)):
             instant = NOW.replace(hour=hour, minute=minute)
             data = {"quotes": {k: quote(19, instant) for k in ("hkHSI", item["code"])}}

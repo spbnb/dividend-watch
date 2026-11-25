@@ -59,6 +59,9 @@ def live_report(snapshot, now):
                 reading = "—" if row[field] is None else f"{row[field]:.2f}{unit}"
                 limits = f"{row[first]:g}{unit}" + (f" / {row[second]:g}{unit}" if row.get(second) is not None else "")
                 indicators.append(f"{label} {reading}（≤ {limits}）")
+        if row.get("show_premium"):
+            spread = "—" if row["premium"] is None else f"{row['premium']:+.2f}%"
+            indicators.append(f"折溢价 {spread}（仅观察）")
         table.append([f"{row['name']} {row['code']}", value, targets, "；".join(indicators) or "—", row["label"],
                       (row["at"] or "—")[:19].replace("T", " ")])
         keys = event_keys(row, now, benchmarks)

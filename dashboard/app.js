@@ -38,6 +38,7 @@ function details(r) {
   if (r.type === "ETF" && (r.rsi_max != null || r.drawdown_days)) values.push(["MACD 柱 (12,26,9)", fmt(r.macd, 4)]);
   if (r.drawdown_days) values.push([r.drawdown_days + " 日收盘回撤", pct(r.drawdown) + " · 阈值 < −" + r.drawdown_pct + "%"]);
   if (r.premium_max != null) values.push(["IOPV", fmt(r.iopv, 4)], ["盘中溢价", pct(r.premium) + " · 上限 " + r.premium_max + "%"]);
+  else if (r.show_premium) values.push(["盘中参考净值（IOPV）", fmt(r.iopv, 4)], ["折溢价（仅供观察）", pct(r.premium)]);
   if (r.yield_min != null) values.push(["近 365 天现金股息率", (r.yield_pct == null ? "—" : fmt(r.yield_pct) + "%") + " · 观察线 " + r.yield_min + "%"]);
   if (r.index) values.push(["最近公布净值", fmt(r.nav, 4) + " · " + (r.nav_day || "—")],
     ["跟踪指数 " + r.index + " 日涨跌", pct(r.index_pct) + limits(r.index_drop, r.index_drop_second, "%")],

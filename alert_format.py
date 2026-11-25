@@ -63,6 +63,9 @@ def alert_card(row, signals, now):
     parts.append(f"{targets} {unit}")
     if row.get("premium_max") is not None and row.get("premium") is not None:
         parts.append(f"盘中溢价 {row['premium']:.2f}%（上限 {row['premium_max']:g}%）")
+    elif row.get("show_premium") and price is not None:
+        spread = "待更新" if row.get("premium") is None else f"{row['premium']:+.2f}%"
+        parts.append(f"折溢价 {spread}（仅观察）")
     stamps = []
     if price is not None:
         stamps.append(f"{'估值' if fund else '行情'} {row['at'][11:19]}")

@@ -8,7 +8,7 @@
   {"code":"sh515180","name":"红利 ETF 易方达","type":"ETF","first":1.32,"second":1.25,"rsi_max":35,"rsi_second_max":30,"rsi7_max":25,"rsi7_second_max":20},
   {"code":"sh600900","name":"长江电力","type":"A 股","first":28.50,"second":26.80,"rsi_max":35,"rsi_second_max":30,"rsi7_max":25,"rsi7_second_max":20},
   {"code":"sh601398","name":"工商银行","type":"A 股","first":8.00,"second":7.40,"rsi_max":35,"rsi_second_max":30,"rsi7_max":25,"rsi7_second_max":20},
-  {"code":"sh600938","name":"中国海油 A","type":"A 股","group":"cnooc","first":27.00,"second":25.00,"rsi_max":35,"rsi_second_max":30,"rsi7_max":25,"rsi7_second_max":20},
-  {"code":"hk00883","name":"中国海油 H","type":"港股","group":"cnooc","first":20.00,"second":18.50,"rsi_max":35,"rsi_second_max":30,"rsi7_max":25,"rsi7_second_max":20},
+  {"code":"sh600938","name":"中国海油 A","type":"A 股","first":27.00,"second":25.00,"rsi_max":35,"rsi_second_max":30,"rsi7_max":25,"rsi7_second_max":20},
+  {"code":"sz159201","name":"华夏国证自由现金流 ETF","type":"ETF","first":1.097,"second":1.082,"rsi_max":35,"rsi_second_max":30,"rsi7_max":25,"rsi7_second_max":20,"show_premium":true},
   {"code":"012708","name":"东方红红利低波 A","type":"场外基金","first":1.36,"second":1.30,"rsi_max":35,"rsi_second_max":30,"rsi7_max":25,"rsi7_second_max":20,"index":"931446","index_drop":-1.5,"index_drop_second":-2.5}
 ]
