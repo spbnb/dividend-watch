@@ -44,7 +44,7 @@ function details(r) {
     ["跟踪指数 " + r.index + " 日涨跌", pct(r.index_pct) + limits(r.index_drop, r.index_drop_second, "%")],
     ["指数行情时间 · 北京", dateText(r.index_at)]);
   if (r.reasons.length) values.push(["命中条件", r.reasons.join("、")]);
-  if (r.observe) values.push(["通知方式", "仅在看板观察"]);
+  if (r.observe) values.push(["通知方式", r.temperature_alerts ? "温度分档提醒，其他条件仅观察" : "仅在看板观察"]);
   const dl = el("dl", null, "detail");
   for (const [name, value] of values) {
     const node = el("div");
@@ -68,6 +68,9 @@ function makeRow(r) {
   button.setAttribute("aria-controls", detailId);
   button.setAttribute("aria-label", r.name + "，行情与触发条件详情");
   first.append(button);
+  const thermometer = el("a", "温度计" + (r.temperature == null ? "" : " · " + r.temperature + "° " + r.temperature_band), "thermo-link");
+  thermometer.href = "thermometers/" + encodeURIComponent(r.code) + ".html";
+  first.append(thermometer);
   tr.append(first);
   const columns = [
     ["最新价 / 净值", fmt(r.price, digits(r)), "price", true],

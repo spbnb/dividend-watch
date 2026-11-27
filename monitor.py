@@ -4,10 +4,13 @@ import argparse
 import html
 import json
 import shutil
+import os
+import tempfile
 from datetime import datetime, time, timedelta
 from pathlib import Path
 
 from market import BENCHMARKS, CST, collect
+import temperature
 
 
 ROOT = Path(__file__).resolve().parent
@@ -138,6 +141,8 @@ def hit_label(signals):
     if "first" in signals:
         return LABELS["first"]
     labels = []
+    if "cold_second" in signals or "cold" in signals:
+        labels.append("超低温" if "cold_second" in signals else "低温")
     for prefix, name in (("rsi", "RSI 预警"), ("index", "指数跌幅")):
         matches = [key for key in signals if key.startswith(prefix)]
         if matches:
@@ -186,6 +191,11 @@ def evaluate(item, data, now):
            "macd": None, "yield_pct": None, "gap": None,
            "signals": [], "reasons": [], "signal_at": None}
     valid = current(q, now, market)
+    bars = temperature.closed_history(data, item, now)
+    temp, temp_at, intraday = temperature.reading(
+        item, bars, q, now, previous_session(data, now.date().isoformat(), market),
+        valid and in_session(now, market) and fresh(at, now))
+    row.update(temperature=temp, temperature_at=temp_at, temperature_live=intraday, temperature_band=temperature.band(temp))
     if price:
         if not item.get("index") or valid:
             row["gap"] = (price / item["first"] - 1) * 100
@@ -215,6 +225,9 @@ def evaluate(item, data, now):
             reasons.append(f"{basis}到达首档 ≤ {item['first']:g}")
         add_indicator(row, "rsi", "RSI(14)", row["rsi"], item.get("rsi_max"), item.get("rsi_second_max"))
         add_indicator(row, "rsi7", "RSI(7)", row["rsi7"], item.get("rsi7_max"), item.get("rsi7_second_max"))
+        if intraday and temp is not None and temp <= temperature.LIMITS[1]:
+            signals.append("cold_second" if temp <= temperature.LIMITS[0] else "cold")
+            reasons.append(f"{temperature.band(temp)} {temp:g}°")
         if row["drawdown"] is not None and round(row["drawdown"], 8) < -item["drawdown_pct"]:
             signals.append("drawdown")
             reasons.append(f"{item['drawdown_days']} 日收盘回撤超过 {item['drawdown_pct']}%")
@@ -229,7 +242,8 @@ def evaluate(item, data, now):
     if not (valid or valid_index):
         status = "stale" if price else "missing"
     elif item.get("observe"):
-        status = "observe_hit" if signals else "observe"
+        cold_alert = item.get("temperature_alerts") and any(s.startswith("cold") for s in signals)
+        status = "signal" if cold_alert else "observe_hit" if signals else "observe"
     elif signals and "premium_max" in item and not current(data["quotes"].get(BENCHMARKS["HK"]), now, "HK"):
         reasons.append("港股基准行情未更新")
         status = "verify"
@@ -247,7 +261,8 @@ def evaluate(item, data, now):
         status = "partial"
     else:
         status = "signal" if signals else "watch"
-    row.update(status=status, label=hit_label(signals) if status in HITS else LABELS[status])
+    active_signals = [s for s in signals if s.startswith("cold")] if item.get("observe") else signals
+    row.update(status=status, label=hit_label(active_signals) if status in HITS else LABELS[status])
     return row
 
 
@@ -264,7 +279,16 @@ def build(watchlist, data, now):
             "session": {m: in_session(now, m) and current(q, now, m) for m, q in benchmarks.items()}}
 
 
-def render(snapshot, output):
+def write_page(path, content):
+    with tempfile.NamedTemporaryFile(dir=path.parent, mode="w", encoding="utf-8", delete=False) as f:
+        f.write(content)
+    try:
+        os.replace(f.name, path)
+    finally:
+        Path(f.name).unlink(missing_ok=True)
+
+
+def render(snapshot, output, data=None):
     output.mkdir(parents=True, exist_ok=True)
     template = ROOT / "dashboard"
     serialized = json.dumps(snapshot, ensure_ascii=False, allow_nan=False, separators=(",", ":"))
@@ -273,10 +297,21 @@ def render(snapshot, output):
                     (r["name"], r["code"], r["price"] or "—", r["first"], r["label"])) + "</tr>"
                     for r in snapshot["rows"])
     index = index.replace("__ROWS__", table).replace("__SNAPSHOT__", serialized.replace("<", "\\u003c"))
-    for asset in ("style.css", "app.js"):
-        shutil.copyfile(template / asset, output / asset)
-    (output / "snapshot.json").write_text(serialized, encoding="utf-8")
-    (output / "index.html").write_text(index, encoding="utf-8")
+    for asset in ("style.css", "app.js", "thermometer.css", "thermometer.js"):
+        if not (output / asset).exists() or (template / asset).stat().st_mtime_ns != (output / asset).stat().st_mtime_ns:
+            shutil.copy2(template / asset, output / asset)
+    folder = output / "thermometers"
+    folder.mkdir(exist_ok=True)
+    template_text = (template / "thermometer.html").read_text(encoding="utf-8")
+    now = datetime.fromisoformat(snapshot["generated"])
+    for row in snapshot["rows"]:
+        bars = temperature.closed_history(data or {}, row, now)
+        source = "天天基金 · 公布净值日增长率连乘" if row.get("index") else "Yahoo Finance · 复权日收盘"
+        page = temperature.page_data(row, bars, source)
+        payload = json.dumps(page, ensure_ascii=False, allow_nan=False, separators=(",", ":")).replace("<", "\\u003c")
+        write_page(folder / (row["code"] + ".html"), template_text.replace("__THERMO_DATA__", payload))
+    write_page(output / "snapshot.json", serialized)
+    write_page(output / "index.html", index)
 
 
 def main():
@@ -287,7 +322,7 @@ def main():
     now = datetime.now(CST)
     data = collect(items, now.date())
     snapshot = build(items, data, datetime.now(CST))
-    render(snapshot, args.output)
+    render(snapshot, args.output, data)
     print(f"Built {len(snapshot['rows'])} rows, {snapshot['groups']} groups at {snapshot['generated']}")
 
 

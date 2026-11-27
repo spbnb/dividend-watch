@@ -96,6 +96,7 @@ h2 { font-size: 1.18rem; line-height: 1.4; font-weight: 720 }
 .type-icon.hk { background: #f5ece3; border-color: #e8d9ca; color: #865b37 }
 .type-icon.fund { background: #f0edf7; border-color: #e0d8e9; color: #695780 }
 .name-button b { font-size: .96rem; font-weight: 650 }
+.thermo-link { display: block; width: fit-content; padding: 4px 0; margin-left: 36px; color: #206464; font-size: .88rem; text-decoration: underline; text-underline-offset: 3px }
 .code { display: block; color: var(--muted); font: .77rem/1.5 "IBM Plex Mono", Consolas, monospace; letter-spacing: .015em }
 .currency { font-size: .72rem; color: var(--muted); margin-right: 2px }
 .num { white-space: nowrap }.price { font-weight: 650 }

@@ -126,12 +126,14 @@ def configured_channels():
 
 
 def signal_time(row, signal):
+    if signal in {"cold", "cold_second"}:
+        return row.get("temperature_at")
     return row.get("index_at") if signal in {"index", "index_second"} else row.get("at")
 
 
 def covered_keys(keys):
     # Keep the original first-tier keys so receipts from earlier versions still apply.
-    shallow = {"second": "first", "rsi_second": "rsi", "rsi7_second": "rsi7", "index_second": "index"}
+    shallow = {"second": "first", "rsi_second": "rsi", "rsi7_second": "rsi7", "index_second": "index", "cold_second": "cold"}
     covered = set()
     for key in keys:
         code, signal = key.split("/", 1)
@@ -147,7 +149,9 @@ def event_keys(row, now, benchmarks):
     if "premium_max" in row and not current(benchmarks.get("HK"), now, "HK"):
         return set()
     if row["status"] in HITS:
-        return {row["code"] + "/" + s for s in row["signals"] if fresh(signal_time(row, s), now)}
+        return {row["code"] + "/" + s for s in row["signals"]
+                if (not row.get("observe") or (row.get("temperature_alerts") and s in {"cold", "cold_second"}))
+                and fresh(signal_time(row, s), now)}
     return set()
 
 
@@ -193,7 +197,8 @@ def delivery(snapshot, now, mode, sent):
     if not keys:
         return None
     if events:
-        title, lines = format_alerts(events, now, "GitHub" if mode.startswith("scheduled") else "红利观察台")
+        title, lines = format_alerts(events, now, "GitHub" if mode.startswith("scheduled") else "红利观察台",
+                                    dashboard_url=os.getenv("DASHBOARD_URL"))
     if summary:
         title = "红利观察台 · " + ("收盘后复盘" if now.hour >= 15 else "尾盘巡检")
         if not events:

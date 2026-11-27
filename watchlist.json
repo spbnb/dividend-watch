@@ -3,7 +3,7 @@
   {"code":"sh601318","name":"中国平安","type":"A 股","first":53.50,"second":48.50,"rsi_max":35,"rsi_second_max":30,"rsi7_max":25,"rsi7_second_max":20,"yield_min":5.05},
   {"code":"sh600036","name":"招商银行","type":"A 股","first":42.50,"second":40.50,"rsi_max":35,"rsi_second_max":30,"rsi7_max":25,"rsi7_second_max":20,"yield_min":4.90},
   {"code":"sh513530","name":"港股通红利 ETF","type":"ETF","first":1.45,"second":1.38,"rsi_max":35,"rsi_second_max":30,"rsi7_max":25,"rsi7_second_max":20,"premium_max":1.5},
-  {"code":"sh512890","name":"红利低波","type":"ETF","first":1.20,"second":1.12,"rsi_max":35,"rsi_second_max":30,"rsi7_max":25,"rsi7_second_max":20,"drawdown_days":60,"drawdown_pct":6,"observe":true},
+  {"code":"sh512890","name":"红利低波","type":"ETF","first":1.20,"second":1.12,"rsi_max":35,"rsi_second_max":30,"rsi7_max":25,"rsi7_second_max":20,"drawdown_days":60,"drawdown_pct":6,"observe":true,"temperature_alerts":true},
   {"code":"sh515450","name":"红利低波 50","type":"ETF","first":1.42,"second":1.35,"rsi_max":35,"rsi_second_max":30,"rsi7_max":25,"rsi7_second_max":20},
   {"code":"sh515180","name":"红利 ETF 易方达","type":"ETF","first":1.32,"second":1.25,"rsi_max":35,"rsi_second_max":30,"rsi7_max":25,"rsi7_second_max":20},
   {"code":"sh600900","name":"长江电力","type":"A 股","first":28.50,"second":26.80,"rsi_max":35,"rsi_second_max":30,"rsi7_max":25,"rsi7_second_max":20},

@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#eff4f0">
+  <title>标的温度计 · 红利观察台</title>
+  <link rel="stylesheet" href="../thermometer.css">
+  <script type="application/json" id="thermo-data">__THERMO_DATA__</script>
+  <script defer src="../thermometer.js"></script>
+</head>
+<body>
+  <header class="mast"><div class="shell mast-inner">
+    <span class="brand"><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>红利观察台</span>
+    <a href="../index.html#list" class="back">监控清单</a>
+  </div></header>
+  <main class="shell">
+    <header class="heading">
+      <div><p class="eyebrow">自编行情温度计</p><h1 id="name">标的温度计</h1><p class="meta" id="instrument"></p></div>
+      <div class="quote"><span id="price-label">最新报价</span><strong id="price">—</strong><small id="quote-time">行情待更新</small></div>
+    </header>
+    <div class="top-grid">
+      <section class="panel meter" aria-labelledby="meter-title">
+        <h2 id="meter-title">当前温度</h2>
+        <div class="dial">
+          <canvas id="gauge" aria-hidden="true"></canvas>
+          <div class="dial-reading"><strong id="temperature">—</strong><span id="status"></span></div>
+        </div>
+        <ul class="band-key" id="band-key" aria-label="温度区间"></ul>
+        <p class="note" id="asof"></p>
+      </section>
+      <section class="panel history" aria-labelledby="history-title">
+        <div class="section-head"><h2 id="history-title">历史走势</h2>
+          <div class="switch" id="period" role="group" aria-label="走势时间范围">
+            <button type="button" data-years="1" aria-pressed="true">近1年</button><button type="button" data-years="3" aria-pressed="false">近3年</button><button type="button" data-years="5" aria-pressed="false">近5年</button><button type="button" data-years="0" aria-pressed="false">全部</button>
+          </div>
+        </div>
+        <div class="legend"><span class="temp-line">温度（左轴）</span><span class="price-line" id="price-axis"></span></div>
+        <div class="history-plot"><canvas id="plot" tabindex="0" role="slider" aria-label="查看历史行情，左右方向键切换日期" aria-valuemin="0" aria-valuemax="0" aria-valuenow="0"></canvas><p id="no-history" hidden>暂无可用历史行情</p></div>
+        <output id="cursor" class="cursor"></output>
+      </section>
+    </div>
+    <section class="panel result" aria-labelledby="current-title">
+      <div class="section-head"><h2 id="current-title">当前温区的历史收益</h2><strong class="tag" id="stat-band">—</strong></div>
+      <div class="table-wrap"><table><thead><tr><th scope="col">持有期限</th><th scope="col">平均收益</th><th scope="col">胜率</th><th scope="col">样本数</th></tr></thead><tbody id="current-stats"></tbody></table></div>
+      <p class="note" id="stats-note"></p>
+    </section>
+    <section class="panel comparison" aria-labelledby="compare-title">
+      <div class="section-head"><h2 id="compare-title">各温区表现</h2><span class="meta">持有 1 年</span></div>
+      <div class="comparison-head"><span>温度区间</span><span>平均收益</span><span>胜率</span></div>
+      <div id="comparisons"></div>
+    </section>
+    <details class="panel method"><summary>计算口径与数据来源</summary><p id="method"></p><p id="source"></p></details>
+    <noscript>请启用 JavaScript 查看温度计和历史统计。</noscript>
+  </main>
+</body>
+</html>

@@ -35,14 +35,14 @@ def timestamp(value):
     return None
 
 
-def read(url, *, encoding="utf-8", referer="https://finance.qq.com/"):
+def read(url, *, encoding="utf-8", referer="https://finance.qq.com/", attempts=2):
     request = Request(url, headers={"User-Agent": "Mozilla/5.0", "Referer": referer})
-    for attempt in range(2):
+    for attempt in range(attempts):
         try:
             with urlopen(request, timeout=6) as response:
                 return response.read().decode(encoding)
         except (OSError, http.client.HTTPException):
-            if attempt:
+            if attempt + 1 == attempts:
                 raise
             time.sleep(0.4)
 
@@ -123,7 +123,49 @@ def history(code):
     return sorted(closes.items())
 
 
-def fund_history(code):
+def adjusted_history(code, today):
+    """One split- and dividend-adjusted series; a later adjustment scales all earlier bars alike."""
+    if code.startswith("hk"):
+        symbol = f"{int(code[2:]):04d}.HK"
+        currency = "HKD"
+    else:
+        symbol = code[2:] + {"sh": ".SS", "sz": ".SZ"}[code[:2]]
+        currency = "CNY"
+    start = date(2018, 1, 1)
+    def epoch(day):
+        return int(datetime.combine(day, datetime.min.time(), CST).timestamp())
+    query = urlencode({"interval": "1d", "period1": epoch(start), "period2": epoch(today + timedelta(days=1))})
+    for host in ("query1", "query2"):
+        try:
+            response = json.loads(read(f"https://{host}.finance.yahoo.com/v8/finance/chart/{symbol}?{query}",
+                                       referer="https://finance.yahoo.com/", attempts=1))
+            chart = response["chart"]["result"][0]
+            meta = chart["meta"]
+            if meta.get("symbol") != symbol or meta.get("currency") != currency or meta.get("dataGranularity") != "1d":
+                continue
+            # Never substitute raw closes. In particular, some ETFs have synthetic
+            # zero-volume NAV observations on Yahoo before the first exchange trade.
+            values = chart["indicators"]["adjclose"][0]["adjclose"]
+            volumes = chart["indicators"]["quote"][0]["volume"]
+            stamps = chart["timestamp"]
+            if len(values) != len(stamps) or len(volumes) != len(stamps):
+                continue
+            bars = {}
+            for stamp, value, volume in zip(stamps, values, volumes):
+                close = number(value, positive=True)
+                if close is None or not number(volume, positive=True):
+                    continue
+                day = datetime.fromtimestamp(stamp, CST).date()
+                if start <= day <= today:
+                    bars[day.isoformat()] = close
+            if bars:
+                return sorted(bars.items())
+        except DATA_ERRORS:
+            continue
+    return []
+
+
+def fund_history(code, limit=110):
     """Build a comparable daily series from published NAV returns, including distributions."""
     raw = read(f"https://fund.eastmoney.com/pingzhongdata/{code}.js", referer="https://fund.eastmoney.com/")
     identity = re.search(r'\bvar\s+fS_code\s*=\s*"([0-9]+)"', raw)
@@ -144,7 +186,8 @@ def fund_history(code):
                             if number(entry.get("y"), positive=True) else None)
     bars = []
     level = 1.0
-    for day, change in sorted(returns.items())[-110:]:
+    days = sorted(returns.items())
+    for day, change in (days[-limit:] if limit is not None else days):
         if change is None or change <= -100:
             bars.clear()
             level = 1.0
@@ -213,19 +256,23 @@ def collect(watchlist, today, *, references=None):
             "backup": (eastmoney_quotes, codes + ["csi" + i["index"] for i in funds])}
     for code in sorted(set(exchange).union(BENCHMARKS.values())):
         jobs["history:" + code] = (history, code)
+    for code in exchange:
+        jobs["long:" + code] = (adjusted_history, code, today)
+    fund_short_keys = set()
     for item in funds:
         code = item["code"]
         jobs["estimate:" + code] = (estimate, code)
         jobs["nav:" + code] = (reported_navs, code)
+        jobs["long:" + code] = (fund_history, code, None)
         if item.get("rsi_max") is not None or item.get("rsi7_max") is not None:
-            jobs["history:" + code] = (fund_history, code)
+            fund_short_keys.add("history:" + code)
     for item in watchlist:
         if item.get("yield_min"):
             jobs["cash:" + item["code"]] = (dividends, item["code"], today)
     # Intraday clients may reuse daily bars, reported NAV and cash distributions.
     # Quotes, the benchmark and the fund estimate are fetched on every call.
     result = {k: v for k, v in (references or {}).items()
-              if k in jobs and k.startswith(("history:", "nav:", "cash:"))}
+              if k in fund_short_keys or (k in jobs and k.startswith(("history:", "long:", "nav:", "cash:")))}
     with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
         futures = {pool.submit(fn, *args): key for key, (fn, *args) in jobs.items() if key not in result}
         for future in concurrent.futures.as_completed(futures):
@@ -235,4 +282,10 @@ def collect(watchlist, today, *, references=None):
             except DATA_ERRORS as exc:
                 print(f"Data unavailable: {key} ({type(exc).__name__})")
     result["quotes"] = combine_quotes(result.pop("primary", {}), result.pop("backup", {}))
+    for key in fund_short_keys:
+        # Derive the existing normalized 110-day RSI series from the same download.
+        series = result.get("long:" + key.split(":", 1)[1])
+        if key not in result and series:
+            base = series[-111][1] if len(series) > 110 else 1.0
+            result[key] = [(day, value / base) for day, value in series[-110:]]
     return result

@@ -11,7 +11,8 @@ from pathlib import Path
 
 from alert_format import alert_card
 from market import CST, collect
-from monitor import ROOT, build, session_end
+from monitor import ROOT, build, render, session_end
+from temperature import closed_history
 from notify import covered_keys, event_keys, signal_time
 
 
@@ -26,7 +27,11 @@ def collect_local(items, now, cache_path):
     using_cache = bool(reusable and references)
     data = collect(items, now.date(), references=references) if using_cache else collect(items, now.date())
     # Keep same-day reference data if an occasional history request fails.
-    observed = {k: v for k, v in data.items() if k.startswith(("history:", "nav:", "cash:")) and v}
+    for item in items:
+        key = "long:" + item["code"]
+        if key in data:
+            data[key] = closed_history(data, item, now)
+    observed = {k: v for k, v in data.items() if k.startswith(("history:", "nav:", "cash:", "long:")) and v}
     if using_cache and observed.keys() <= references.keys():
         return data
     references.update(observed)
@@ -62,8 +67,9 @@ def live_report(snapshot, now):
         if row.get("show_premium"):
             spread = "—" if row["premium"] is None else f"{row['premium']:+.2f}%"
             indicators.append(f"折溢价 {spread}（仅观察）")
+        temp = f"{row['temperature']:g}° {row['temperature_band']}" if row.get("temperature") is not None else "待更新"
         table.append([f"{row['name']} {row['code']}", value, targets, "；".join(indicators) or "—", row["label"],
-                      (row["at"] or "—")[:19].replace("T", " ")])
+                      (row["at"] or "—")[:19].replace("T", " "), temp])
         keys = event_keys(row, now, benchmarks)
         if not keys:
             continue
@@ -80,7 +86,7 @@ def live_report(snapshot, now):
             "groups": snapshot["groups"], "total": len(snapshot["rows"]),
             "priced": sum(r["price"] is not None for r in snapshot["rows"]),
             "open": [k for k, active in snapshot["session"].items() if active], "events": events,
-            "columns": ["标的", "现价 / 净值", "价格首档 / 二档", "指标现值（首档 / 二档）", "状态", "行情时间（北京时间）"],
+            "columns": ["标的", "现价 / 净值", "价格首档 / 二档", "指标现值（首档 / 二档）", "状态", "行情时间（北京时间）", "温度计"],
             "rows": table}
 
 
@@ -92,7 +98,9 @@ def main():
     with contextlib.redirect_stdout(sys.stderr):
         data = collect_local(items, datetime.now(CST), args.cache)
     now = datetime.now(CST)
-    print(json.dumps(live_report(build(items, data, now), now), ensure_ascii=True))
+    snapshot = build(items, data, now)
+    render(snapshot, args.cache.parent / "site", data)
+    print(json.dumps(live_report(snapshot, now), ensure_ascii=True))
 
 
 if __name__ == "__main__":

@@ -2,6 +2,7 @@
 
 import html
 import json
+import os
 import sys
 from datetime import datetime
 
@@ -33,6 +34,9 @@ def alert_card(row, signals, now):
     price, first, second = live_price(row, now), row["first"], row.get("second")
     basis = "估算净值" if fund else "价格"
     parts = [f"{stock_name(row)} · {display_code(row['code'])}"]
+    if signals & {"cold", "cold_second"}:
+        level = "超低温" if "cold_second" in signals else "低温"
+        parts.append(f"{level}　{row['temperature']:g}° · 近 250 日价格位置（盘中暂估）")
 
     if "second" in signals or "first" in signals:
         tier = "二档" if "second" in signals else "首档"
@@ -76,7 +80,7 @@ def alert_card(row, signals, now):
     return "\n".join(parts)
 
 
-def format_alerts(events, now, source, *, preview=False):
+def format_alerts(events, now, source, *, preview=False, dashboard_url=None):
     now = now.astimezone(CST)
     selected = []
     for event in events:
@@ -116,6 +120,8 @@ def format_alerts(events, now, source, *, preview=False):
             topics.append(f"{len(prices)} 只到价")
     if has_rsi:
         topics.append("RSI 触发")
+    if all_signals & {"cold", "cold_second"}:
+        topics.append("超低温" if "cold_second" in all_signals else "低温")
     if has_index:
         topics.append("指数跌幅" + ("二档" if "index_second" in all_signals else "首档"))
     if "drawdown" in all_signals:
@@ -124,7 +130,12 @@ def format_alerts(events, now, source, *, preview=False):
         topics.append("均未到首档" if len(rows) > 1 else "未到首档")
     title = ("版式预览｜" if preview else "") + subject + "｜" + "，".join(topics) + " · " + source
     stamp = f"北京时间 {now:%Y-%m-%d %H:%M}"
-    lines = (["历史示例 · " + stamp] if preview else []) + [alert_card(r, s, now) for r, s in selected]
+    lines = ["历史示例 · " + stamp] if preview else []
+    for row, signals in selected:
+        card = alert_card(row, signals, now)
+        if dashboard_url and dashboard_url.startswith("https://") and signals & {"cold", "cold_second"}:
+            card += "\n" + dashboard_url.rstrip("/") + "/thermometers/" + row["code"] + ".html"
+        lines.append(card)
     note = "RSI 为盘中日线暂估值" if has_rsi else ""
     footer = " · ".join(filter(None, ["" if preview else stamp, note]))
     if footer:
@@ -144,7 +155,9 @@ def mobile_html(lines):
             continue
         body = [f'<p style="margin:0 0 8px;font-size:18px"><strong>{heading}</strong></p>']
         for line in details:
-            if line.startswith(("RSI(", "指数 ", "价格到达", "估算净值到达")):
+            if line.startswith("https://"):
+                content = f'<a href="{line}">查看温度计和历史走势</a>'
+            elif line.startswith(("RSI(", "指数 ", "价格到达", "估算净值到达", "低温", "超低温")):
                 content = f'<strong style="color:#134e4a">{line}</strong>'
             elif line.startswith(("行情 ", "估值 ", "指数行情 ")):
                 content = f'<small style="color:#4b5563">{line}</small>'
@@ -169,5 +182,6 @@ def plain_body(lines, max_bytes=None):
 
 if __name__ == "__main__":
     request = json.load(sys.stdin.buffer)
-    title, lines = format_alerts(request["events"], datetime.fromisoformat(request["now"]), "本机")
+    title, lines = format_alerts(request["events"], datetime.fromisoformat(request["now"]), "本机",
+                                dashboard_url=os.getenv("DASHBOARD_URL", "https://spbnb.github.io/dividend-watch/"))
     print(json.dumps({"title": title, "lines": lines, "html": mobile_html(lines)}, ensure_ascii=True))
