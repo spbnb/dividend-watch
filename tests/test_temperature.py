@@ -18,7 +18,11 @@ class TemperatureTests(unittest.TestCase):
         self.assertEqual(before[250][2], 50)
         extended = t.historical_series(bars + [("2022-01-01", 16), ("2022-01-02", 18)])
         self.assertEqual(extended[:251], before)
-        self.assertEqual([r[2] for r in extended[-2:]], [0, 100])
+        # On the rebound price rank is 100, while prior losses still affect both RSIs.
+        self.assertEqual([r[2] for r in extended[-2:]], [0, 84.4])
+        self.assertEqual(t.composite(80, 60, 20), 64)
+        self.assertEqual(t.composite(0, 24, 28), 12.6)
+        self.assertIsNone(t.composite(80, None, 20))
         self.assertEqual([t.band(v) for v in (10, 10.2, 25, 25.2, 75, 90, 90.2)], [
             "超低温", "低温", "低温", "中温", "中温", "高温", "超高温"])
 
@@ -65,10 +69,33 @@ class TemperatureTests(unittest.TestCase):
         bars = [((NOW.date()-timedelta(days=i)).isoformat(), 100+i) for i in range(250,0,-1)]
         q = quote(1.15, pct=3)
         expected = t.rank(bars[-1][1]*1.03, sorted(v for _, v in bars))
-        self.assertEqual(t.reading(item, bars, q, NOW, bars[-1][0], True), (expected, q["at"], True))
-        self.assertFalse(t.reading(item, bars, q, NOW, None, True)[2])
+        live = t.reading(item, bars, q, NOW, bars[-1][0], True)
+        self.assertEqual(live["temperature_components"]["position"], expected)
+        self.assertEqual((live["temperature"], live["temperature_at"], live["temperature_live"]), (12.4, q["at"], True))
+        self.assertIsNone(t.reading(item, bars, q, NOW, None, True)["temperature"])
+        equivalent = bars + [(NOW.date().isoformat(), bars[-1][1] * 1.03)]
+        self.assertEqual(t.historical_series(equivalent)[-1][2], live["temperature"])
         confirmed = bars + [(NOW.date().isoformat(), 106)]
         self.assertEqual(t.closed_history({"long:012708":confirmed}, item, NOW), bars)
         close = datetime.combine(NOW.date(), datetime.min.time(), market.CST).replace(hour=19)
         self.assertEqual(t.closed_history({"long:012708":confirmed}, item, close), confirmed)
-        self.assertEqual(t.reading(item, confirmed, q, close, bars[-1][0], False)[1:], (NOW.date().isoformat(), False))
+        published = t.reading(item, confirmed, q, close, bars[-1][0], False)
+        self.assertEqual((published["temperature_at"], published["temperature_live"]), (NOW.date().isoformat(), False))
+        unpublished = t.reading(item, bars, quote(1.15, at=close, pct=3), close, bars[-1][0], False)
+        self.assertIsNone(unpublished["reference_close"])
+
+    def test_verified_closing_quote_extends_history_but_cannot_trigger_intraday_alert(self):
+        end = NOW.replace(hour=16, minute=30)
+        item = ITEMS["sh600900"]
+        bars = [("2025-12-31", 100), ("2026-11-23", 120)]
+        close = quote(11, at=NOW.replace(hour=15, minute=0), prev_close=10)
+        row = t.reading(item, bars, close, end, bars[-1][0], False)
+        self.assertAlmostEqual(row["ytd_pct"], 32)
+        self.assertAlmostEqual(row["rank_day_pct"], 10)
+        self.assertAlmostEqual(row["reference_close"], 132)
+        self.assertFalse(row["temperature_live"])
+        self.assertIsNone(row["temperature"])  # YTD needs less history than temperature.
+        for bad in (dict(close, volume=0), dict(close, at=NOW.isoformat())):
+            row = t.reading(item, bars, bad, end, bars[-1][0], False)
+            self.assertIsNone(row["reference_close"])
+            self.assertEqual(row["temperature_at"], bars[-1][0])

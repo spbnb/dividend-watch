@@ -1,6 +1,7 @@
 """Read public market data. All observation times use the exchange's UTC+8 clock."""
 
 import concurrent.futures
+import html
 import http.client
 import json
 import math
@@ -218,19 +219,105 @@ def reported_navs(code):
             "pct": number(r.get("JZZZL"))} for r in rows if number(r.get("DWJZ"), positive=True)}
 
 
-def dividends(code, today):
-    symbol = code[2:] + {"sh": ".SS", "sz": ".SZ"}[code[:2]]
-    params = urlencode({"interval": "1mo", "range": "2y", "events": "div"})
-    raw = read(f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?{params}",
-               referer="https://finance.yahoo.com/")
-    chart = json.loads(raw)["chart"]["result"][0]
-    if chart["meta"].get("currency") != "CNY" or chart["meta"].get("symbol") != symbol:
+def cn_trading_day(today):
+    """Read the dated trading-day flag published by the Shenzhen Stock Exchange."""
+    url = "https://www.szse.cn/api/report/exchange/onepersistenthour/monthList?" + urlencode({"month": today.strftime("%Y-%m")})
+    try:
+        payload = json.loads(read(url, referer="https://www.szse.cn/disclosure/deal/"))
+    except DATA_ERRORS:
         return None
-    distributions = chart.get("events", {}).get("dividends", {}).values()
-    # Use the ex-date inside the event, not the monthly bucket's dictionary key.
-    cash = [float(d["amount"]) for d in distributions if number(d.get("amount"), positive=True)
-            and today - timedelta(days=365) < datetime.fromtimestamp(d["date"], CST).date() <= today]
-    return sum(cash) if cash else None
+    data = payload.get("data") if isinstance(payload, dict) else None
+    if not isinstance(data, list):
+        return None
+    flags = [r.get("jybz") for r in data if isinstance(r, dict) and r.get("jyrq") == today.isoformat()]
+    if flags == ["1"] and today.weekday() < 5:
+        return True
+    return False if flags == ["0"] else None
+
+
+def cash_per_current_unit(events, today):
+    """Events contain ex-date, cash per previous unit and new units per previous unit."""
+    cash = 0.0
+    for day, amount, factor in sorted(events):
+        if today - timedelta(days=365) < day <= today:
+            cash = (cash + amount) / factor
+    return cash
+
+
+def dividends(code, today):
+    symbol = code[2:] + {"sh": ".SH", "sz": ".SZ"}[code[:2]]
+    fields = "SECUCODE,EX_DIVIDEND_DATE,ASSIGN_PROGRESS,PRETAX_BONUS_RMB,BONUS_IT_RATIO"
+    params = urlencode({"reportName": "RPT_SHAREBONUS_DET", "columns": fields,
+                        "filter": f'(SECUCODE="{symbol}")', "pageNumber": 1, "pageSize": 500,
+                        "source": "WEB", "client": "WEB"})
+    raw = read("https://datacenter-web.eastmoney.com/api/data/v1/get?" + params, referer="https://data.eastmoney.com/")
+    payload = json.loads(raw)
+    result = payload.get("result") or {}
+    rows = result.get("data") or []
+    if not payload.get("success") or not rows or result.get("count") != len(rows):
+        return None
+    if not any(r.get("ASSIGN_PROGRESS") == "实施分配" for r in rows):
+        return None
+    events = []
+    for row in rows:
+        if row.get("SECUCODE") != symbol or not row.get("ASSIGN_PROGRESS"):
+            return None
+        if row.get("ASSIGN_PROGRESS") != "实施分配":
+            continue
+        day = date.fromisoformat(row["EX_DIVIDEND_DATE"][:10])
+        if not today - timedelta(days=365) < day <= today:
+            continue
+        # Both fields are quoted per TEN pre-distribution shares.
+        cash = number(row["PRETAX_BONUS_RMB"]) if row["PRETAX_BONUS_RMB"] is not None else 0.0
+        shares = number(row["BONUS_IT_RATIO"]) if row["BONUS_IT_RATIO"] is not None else 0.0
+        if cash is None or shares is None or min(cash, shares) < 0 or cash + shares == 0:
+            return None
+        events.append((day, cash / 10, 1 + shares / 10))
+    return cash_per_current_unit(events, today)
+
+
+def fund_distributions(code, today):
+    """Use the separate cash distribution and split tables for the identified fund share class."""
+    raw = read(f"https://fundf10.eastmoney.com/fhsp_{code}.html", referer="https://fund.eastmoney.com/")
+    if not re.search(r"<title>[^<]*\(" + re.escape(code) + r"\)基金分红送配", raw):
+        return None
+    tables = re.findall(r"<table\b[^>]*>(.*?)</table>", raw, re.S | re.I)
+    events = {}
+    for is_cash, header, empty in ((True, "每10份分红", "暂无分红信息"), (False, "拆分折算比例", "暂无拆分信息")):
+        sections = [t for t in tables if re.search(r"<th\b[^>]*>" + header + r"</th>", t)]
+        if len(sections) != 1:
+            return None
+        body = re.search(r"<tbody\b[^>]*>(.*?)</tbody>", sections[0], re.S)
+        if not body:
+            return None
+        rows = re.findall(r"<tr\b[^>]*>(.*?)</tr>", body[1], re.S)
+        if not rows:
+            return None
+        for row in rows:
+            cells = [html.unescape(re.sub(r"<[^>]+>", "", cell)).strip()
+                     for cell in re.findall(r"<td\b[^>]*>(.*?)</td>", row, re.S)]
+            if len(rows) == len(cells) == 1 and cells[0].rstrip("!！") == empty:
+                continue
+            if len(cells) != (5 if is_cash else 4):
+                return None
+            day = date.fromisoformat(cells[2 if is_cash else 1])
+            if not today - timedelta(days=365) < day <= today:
+                continue
+            cash, shares = events.get(day, (0.0, 1.0))
+            if is_cash:
+                match = re.fullmatch(r"每10份派现金([\d.]+)元", cells[3])
+                amount = number(match[1], positive=True) if match else None
+                if amount is None:
+                    return None
+                cash += amount / 10
+            else:
+                match = re.fullmatch(r"1[:：]([\d.]+)", cells[3])
+                factor = number(match[1], positive=True) if match else None
+                if factor is None:
+                    return None
+                shares *= factor
+            events[day] = cash, shares
+    return cash_per_current_unit([(day, *values) for day, values in events.items()], today)
 
 
 def combine_quotes(primary, backup):
@@ -254,6 +341,8 @@ def collect(watchlist, today, *, references=None):
     codes = exchange + list(BENCHMARKS.values())
     jobs = {"primary": (tencent_quotes, codes, etfs),
             "backup": (eastmoney_quotes, codes + ["csi" + i["index"] for i in funds])}
+    calendar_key = "calendar:" + today.isoformat()
+    jobs[calendar_key] = (cn_trading_day, today)
     for code in sorted(set(exchange).union(BENCHMARKS.values())):
         jobs["history:" + code] = (history, code)
     for code in exchange:
@@ -267,12 +356,15 @@ def collect(watchlist, today, *, references=None):
         if item.get("rsi_max") is not None or item.get("rsi7_max") is not None:
             fund_short_keys.add("history:" + code)
     for item in watchlist:
-        if item.get("yield_min"):
-            jobs["cash:" + item["code"]] = (dividends, item["code"], today)
+        code = item["code"]
+        if item["type"] in {"ETF", "场外基金"}:
+            jobs["cash:" + code] = (fund_distributions, code[-6:], today)
+        elif code.startswith(("sh", "sz")):
+            jobs["cash:" + code] = (dividends, code, today)
     # Intraday clients may reuse daily bars, reported NAV and cash distributions.
     # Quotes, the benchmark and the fund estimate are fetched on every call.
     result = {k: v for k, v in (references or {}).items()
-              if k in fund_short_keys or (k in jobs and k.startswith(("history:", "long:", "nav:", "cash:")))}
+              if k in fund_short_keys or k == calendar_key or (k in jobs and k.startswith(("history:", "long:", "nav:", "cash:")))}
     with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
         futures = {pool.submit(fn, *args): key for key, (fn, *args) in jobs.items() if key not in result}
         for future in concurrent.futures.as_completed(futures):
@@ -282,6 +374,7 @@ def collect(watchlist, today, *, references=None):
             except DATA_ERRORS as exc:
                 print(f"Data unavailable: {key} ({type(exc).__name__})")
     result["quotes"] = combine_quotes(result.pop("primary", {}), result.pop("backup", {}))
+    result["cn_trading_day"] = result.get(calendar_key)
     for key in fund_short_keys:
         # Derive the existing normalized 110-day RSI series from the same download.
         series = result.get("long:" + key.split(":", 1)[1])

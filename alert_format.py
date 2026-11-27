@@ -36,7 +36,10 @@ def alert_card(row, signals, now):
     parts = [f"{stock_name(row)} · {display_code(row['code'])}"]
     if signals & {"cold", "cold_second"}:
         level = "超低温" if "cold_second" in signals else "低温"
-        parts.append(f"{level}　{row['temperature']:g}° · 近 250 日价格位置（盘中暂估）")
+        parts.append(f"{level}　综合温度 {row['temperature']:g}°（盘中暂估）")
+        comp = row.get("temperature_components")
+        if comp:
+            parts.append(f"价格位置 {comp['position']:.1f} · RSI(14) {comp['rsi14']:.1f} · RSI(7) {comp['rsi7']:.1f}")
 
     if "second" in signals or "first" in signals:
         tier = "二档" if "second" in signals else "首档"

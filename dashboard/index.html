@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#123e35">
-  <title>红利观察台 · 自选监控</title>
+  <title>自选标的温度榜 · 红利观察台</title>
   <link rel="stylesheet" href="./style.css">
   <script type="application/json" id="snapshot">__SNAPSHOT__</script>
   <script src="./app.js" defer></script>
@@ -12,13 +12,30 @@
 <body>
   <header class="top"><div class="shell top-inner">
     <a class="brand" href="#overview"><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>红利观察台</a>
-    <nav aria-label="主导航"><a href="#list">监控清单</a><button class="text-button" id="rules-open">巡检规则</button></nav>
+    <nav aria-label="主导航"><a href="#market-summary">巡检概况</a><button class="text-button" id="rules-open">巡检规则</button></nav>
     <a class="repo" href="https://github.com/spbnb/dividend-watch">GitHub 仓库</a>
   </div></header>
   <main class="shell" id="overview">
-    <div class="page-heading"><div><h1>红利监控面板</h1><p id="updated">正在读取行情快照…</p></div>
+    <div class="page-heading"><div><h1>自选标的温度榜</h1><p id="rank-date"></p><p id="updated">正在读取行情快照…</p></div>
       <span class="session" id="session">定时巡检</span></div>
-    <section class="overview-grid" aria-label="行情和巡检概况">
+    <div class="extremes" aria-label="清单中的最高和最低温度">
+      <div class="extreme hot"><span>最热</span><a id="hottest">—</a></div>
+      <div class="extreme cold"><span>最冷</span><a id="coldest">—</a></div>
+    </div>
+    <section class="watch" id="list" aria-labelledby="list-title">
+      <div class="list-heading"><div><h2 id="list-title">自选清单</h2><span id="visible-count" aria-live="polite"></span></div>
+        <label class="search"><span aria-hidden="true" class="magnifier"></span><input type="search" id="search" placeholder="搜索名称或代码" aria-label="搜索名称或代码"></label>
+      </div>
+      <div class="filter-line"><div id="filters" class="filters" role="group" aria-label="标的类别"></div>
+        <label class="sort"><select id="sort" aria-label="清单排序"><option value="hot">温度从高到低</option><option value="cold">温度从低到高</option><option value="gap">距首档升序</option><option value="change">涨跌幅从高到低</option><option value="status">触发状态优先</option></select></label></div>
+      <button id="clear-scope" hidden></button>
+      <table class="watch-table"><colgroup><col class="col-name"><col class="col-move"><col class="col-yield"><col class="col-temp"><col class="col-band"></colgroup>
+        <thead><tr><th scope="col">标的</th><th scope="col">当日涨跌<small>年内涨跌</small></th><th scope="col" title="近 365 日现金分红率">分红率<small>近365日</small></th><th scope="col">温度</th><th scope="col">温区</th></tr></thead><tbody id="rows"></tbody>
+      </table>
+      <div id="empty" hidden>没有符合条件的标的。<button id="reset">清除筛选</button></div>
+      <noscript><table><thead><tr><th>名称</th><th>代码</th><th>价格 / 净值</th><th>首档</th><th>状态</th></tr></thead><tbody>__ROWS__</tbody></table></noscript>
+    </section>
+    <section class="overview-grid" id="market-summary" aria-label="行情和巡检概况">
       <article class="index-card">
         <div class="card-heading"><h2>上证指数 <span class="symbol">000001.SH</span></h2>
           <div class="periods" aria-label="走势图范围"><button data-days="20" aria-pressed="true">20 日</button><button data-days="60" aria-pressed="false">60 日</button></div>
@@ -35,26 +52,17 @@
         </div>
       </article>
     </section>
-    <section class="watch" id="list" aria-labelledby="list-title">
-      <div class="list-heading"><div><h2 id="list-title">监控清单</h2><span id="visible-count" aria-live="polite"></span></div>
-        <label class="search"><span aria-hidden="true" class="magnifier"></span><input type="search" id="search" placeholder="搜索名称或代码" aria-label="搜索名称或代码"></label>
-      </div>
-      <div class="filter-line"><div id="filters" class="filters" role="group" aria-label="标的类别"></div>
-        <label class="sort"><select id="sort" aria-label="清单排序"><option value="gap">距首档升序</option><option value="change">涨跌幅从高到低</option><option value="status">触发状态优先</option></select></label></div>
-      <button id="clear-scope" hidden></button>
-      <table class="watch-table"><thead><tr><th scope="col">监控标的</th><th scope="col">最新价 / 净值</th><th scope="col">日涨跌</th><th scope="col">首档目标</th><th scope="col">距首档</th><th scope="col">状态</th></tr></thead><tbody id="rows"></tbody></table>
-      <div id="empty" hidden>没有符合条件的标的。<button id="reset">清除筛选</button></div>
-      <noscript><table><thead><tr><th>名称</th><th>代码</th><th>价格 / 净值</th><th>首档</th><th>状态</th></tr></thead><tbody>__ROWS__</tbody></table></noscript>
-    </section>
     <footer><span>北京时间（UTC+8） · 交易日定时更新</span><span>自定义价位提醒，仅供观察。</span></footer>
   </main>
   <dialog id="rules" aria-labelledby="rules-title"><div class="dialog-heading"><h2 id="rules-title">巡检规则</h2><button id="rules-close">关闭</button></div>
     <dl class="rule-list">
-      <dt>巡检与提醒</dt><dd>周一至周五，北京时间 08:00 至 14:30，每半小时计划巡检一次。交易时段内出现新的买点才推送。14:30 入队的最后一轮如有延迟，15:00 前仍可提醒，其后仅更新看板。</dd>
-      <dt>价格与指标</dt><dd>价格、日线 RSI(14) 和 RSI(7) 各自分档，等于阈值即触发。点标的名称可查看现值和两档阈值。盘中用最新价暂估当日日线，同一轮多项命中合并显示，直接到二档时覆盖该指标首档。</dd>
+      <dt>巡检与提醒</dt><dd>北京时间周一至周五 08:00 至 14:30，每半小时计划巡检一次。盘中出现新的触发条件时推送提醒。14:30 入队的最后一轮如有延迟，15:00 前仍可发出盘中提醒。</dd>
+      <dt>盘前与盘后温度榜</dt><dd>交易日北京时间 08:00 计划发送盘前总榜，16:30 计划发送盘后总榜。每个已启用渠道每期接收一次。</dd>
+      <dt>价格与指标</dt><dd>价格、日线 RSI(14) 和 RSI(7) 各自分档，等于阈值即触发。点「行情」可查看现价和两档阈值。盘中用最新价暂估当日日线，同一轮多项命中合并显示，直接到二档时覆盖该指标首档。</dd>
       <dt>跨境 ETF</dt><dd>159545、513530 触发后复核盘中参考净值（IOPV）。溢价高于 1.5% 时拦截买点。缺少 IOPV 或港股基准行情停更时显示待核验。</dd>
-      <dt>场外基金</dt><dd>012708 的 RSI 使用基金已公布的日净值涨跌幅，盘中以估值涨跌幅暂估。单位净值和跟踪指数 931446 的当日跌幅各自设有两档。点基金名称可查看各档和估值来源。</dd>
-      <dt>标的温度计</dt><dd>点标的旁的「温度计」查看近 250 个交易日的价格位置和不同温区的历史收益。盘中 ≤10° 为超低温，超过 10° 且 ≤25° 为低温。512890 只推送温度，其他条件仅观察。</dd>
+      <dt>场外基金</dt><dd>012708 的 RSI 使用基金已公布的日净值涨跌幅，盘中以估值涨跌幅暂估。单位净值和跟踪指数 931446 的当日跌幅各自设有两档。展开「行情」可查看各档和估值来源。</dd>
+      <dt>标的温度计</dt><dd>点标的名称可查看综合温度、历史走势和不同温区的历史收益。综合温度由 250 日价格位置、RSI(14)、RSI(7) 按 50%、35%、15% 加权。盘中 ≤10° 为超低温，超过 10° 且 ≤25° 为低温。512890 只推送温度，其他条件仅观察。</dd>
+      <dt>榜单读法</dt><dd>最热、最冷比较同一最新观测日的标的，旧读数标注日期并列在同日读数之后。年内涨跌按复权口径计算。分红率为近 365 日每股或每份现金分红合计除以最新价或净值。缺少数据时显示「—」。</dd>
       <dt>重复提醒</dt><dd>本机和 GitHub 各自按渠道记录当天的档位提醒。从低温降至超低温可再次提醒，直接触及超低温同时覆盖当天低温档。</dd>
     </dl>
   </dialog>

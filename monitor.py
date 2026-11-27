@@ -11,6 +11,7 @@ from pathlib import Path
 
 from market import BENCHMARKS, CST, collect
 import temperature
+from temperature import wilder_rsi
 
 
 ROOT = Path(__file__).resolve().parent
@@ -77,18 +78,6 @@ def previous_session(data, day, market="CN"):
     if index.get("at", "")[:10] == day and close and abs(older[-1][1] - close) < 0.005:
         return older[-1][0]
     return None
-
-
-def wilder_rsi(closes, period=14):
-    if len(closes) <= period:
-        return None
-    diffs = [b - a for a, b in zip(closes, closes[1:])]
-    gain = sum(max(d, 0) for d in diffs[:period]) / period
-    loss = sum(max(-d, 0) for d in diffs[:period]) / period
-    for d in diffs[period:]:
-        gain = (gain * (period - 1) + max(d, 0)) / period
-        loss = (loss * (period - 1) + max(-d, 0)) / period
-    return 100 * gain / (gain + loss) if gain + loss else 50.0
 
 
 def indicator_closes(item, data, quote, market):
@@ -192,17 +181,16 @@ def evaluate(item, data, now):
            "signals": [], "reasons": [], "signal_at": None}
     valid = current(q, now, market)
     bars = temperature.closed_history(data, item, now)
-    temp, temp_at, intraday = temperature.reading(
+    row.update(temperature.reading(
         item, bars, q, now, previous_session(data, now.date().isoformat(), market),
-        valid and in_session(now, market) and fresh(at, now))
-    row.update(temperature=temp, temperature_at=temp_at, temperature_live=intraday, temperature_band=temperature.band(temp))
+        valid and in_session(now, market) and fresh(at, now)))
     if price:
         if not item.get("index") or valid:
             row["gap"] = (price / item["first"] - 1) * 100
         if row["iopv"]:
             row["premium"] = (price - row["iopv"]) * 100 / row["iopv"]
         cash = data.get("cash:" + code)
-        if cash:
+        if cash is not None:
             row["yield_pct"] = 100 * cash / price
         closes = indicator_closes(item, data, q, market)
         if closes:
@@ -214,6 +202,9 @@ def evaluate(item, data, now):
             window = item.get("drawdown_days")
             if window and len(closes) >= window:
                 row["drawdown"] = (price / max(closes[-window:]) - 1) * 100
+        factors = row["temperature_components"]
+        if factors and at and row["temperature_at"][:10] == at[:10]:
+            row["rsi"], row["rsi7"] = factors["rsi14"], factors["rsi7"]
     signals, reasons = row["signals"], row["reasons"]
     if valid:
         basis = ("公布净值" if len(at) == 10 else "估算净值") if item.get("index") else "价格"
@@ -225,7 +216,8 @@ def evaluate(item, data, now):
             reasons.append(f"{basis}到达首档 ≤ {item['first']:g}")
         add_indicator(row, "rsi", "RSI(14)", row["rsi"], item.get("rsi_max"), item.get("rsi_second_max"))
         add_indicator(row, "rsi7", "RSI(7)", row["rsi7"], item.get("rsi7_max"), item.get("rsi7_second_max"))
-        if intraday and temp is not None and temp <= temperature.LIMITS[1]:
+        temp = row["temperature"]
+        if row["temperature_live"] and temp is not None and temp <= temperature.LIMITS[1]:
             signals.append("cold_second" if temp <= temperature.LIMITS[0] else "cold")
             reasons.append(f"{temperature.band(temp)} {temp:g}°")
         if row["drawdown"] is not None and round(row["drawdown"], 8) < -item["drawdown_pct"]:
@@ -272,8 +264,15 @@ def build(watchlist, data, now):
         raise RuntimeError("所有监控行情源均无可用数据，本次停止发布。")
     rows.sort(key=lambda r: (r["gap"] is None, r["gap"] or 0, r["code"]))
     benchmarks = {market: data["quotes"].get(code) for market, code in BENCHMARKS.items()}
-    series = with_tick(data.get("history:sh000001", []), benchmarks["CN"])[-60:]
-    return {"generated": now.isoformat(timespec="seconds"), "rows": rows,
+    history = data.get("history:sh000001", [])
+    series = with_tick(history, benchmarks["CN"])[-60:]
+    day = now.date().isoformat()
+    last_dates = [d for d, _ in history if d < day]
+    benchmark_day = ((benchmarks["CN"] or {}).get("at") or "")[:10]
+    if benchmark_day and benchmark_day < day:
+        last_dates.append(benchmark_day)
+    return {"generated": now.isoformat(timespec="seconds"), "rows": rows, "cn_trading_day": data.get("cn_trading_day"),
+            "cn_previous_close": max(last_dates, default=None),
             "groups": len({r.get("group", r["code"]) for r in rows}),
             "benchmarks": benchmarks, "series": series,
             "session": {m: in_session(now, m) and current(q, now, m) for m, q in benchmarks.items()}}
@@ -306,6 +305,8 @@ def render(snapshot, output, data=None):
     now = datetime.fromisoformat(snapshot["generated"])
     for row in snapshot["rows"]:
         bars = temperature.closed_history(data or {}, row, now)
+        if row.get("reference_close") is not None:
+            bars.append((now.date().isoformat(), row["reference_close"]))
         source = "天天基金 · 公布净值日增长率连乘" if row.get("index") else "Yahoo Finance · 复权日收盘"
         page = temperature.page_data(row, bars, source)
         payload = json.dumps(page, ensure_ascii=False, allow_nan=False, separators=(",", ":")).replace("<", "\\u003c")

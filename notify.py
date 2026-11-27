@@ -173,11 +173,63 @@ def line_for(row):
             f"｜{label}" + (f" · {details}" if details else ""))
 
 
+def rank_digest(snapshot, now, phase, sent):
+    key = "board/" + phase
+    today = now.date().isoformat()
+    if key in sent or now.weekday() >= 5:
+        return None
+    trading_day = snapshot.get("cn_trading_day")
+    if phase == "premarket":
+        if trading_day is not True or not clock_time(8) <= now.time() < clock_time(9, 30):
+            return None
+        day, label = snapshot.get("cn_previous_close"), "盘前"
+    else:
+        benchmark = snapshot["benchmarks"].get("CN") or {}
+        stamp = benchmark.get("at") or ""
+        confirmed = (stamp[:10] == today and len(stamp) > 10 and
+                     datetime.fromisoformat(stamp).time() >= clock_time(15) and benchmark.get("volume") != 0)
+        if (trading_day is False or (trading_day is None and not confirmed)
+                or not clock_time(16, 30) <= now.time() < clock_time(22)):
+            return None
+        day, label = today, "盘后"
+    ranked, pending = [], []
+    for row in snapshot["rows"]:
+        stamp = (row.get("temperature_at") or "")[:10]
+        if day and stamp == day and not row.get("temperature_live") and row.get("temperature") is not None:
+            ranked.append(row)
+        else:
+            pending.append(row)
+    if not ranked and now.time() < (clock_time(9) if phase == "premarket" else clock_time(17, 30)):
+        return None
+    ranked.sort(key=lambda row: (-row["temperature"], row["code"]))
+    title = f"红利观察台 · {label}温度榜｜{now:%m月%d日}"
+    lines = [f"收盘数据 {day or '待更新'} · 已更新 {len(ranked)}/{len(snapshot['rows'])} 只"]
+    if ranked:
+        hottest, coldest = ranked[0], ranked[-1]
+        lines.append(f"最热　{hottest['name']} {hottest['temperature']:.1f}°\n"
+                     f"最冷　{coldest['name']} {coldest['temperature']:.1f}°")
+        low = sum(row["temperature_band"] == "低温" for row in ranked)
+        ultra = sum(row["temperature_band"] == "超低温" for row in ranked)
+        lines.append(f"低温 {low} 只 · 超低温 {ultra} 只")
+    for n, row in enumerate(ranked, 1):
+        daily = row.get("rank_day_pct")
+        change = f"{daily:+.2f}%" if daily is not None else "—"
+        lines.append(f"{n:02}　{row['name']}　{row['temperature']:.1f}° · {row['temperature_band']}\n"
+                     f"{row['code']}　收盘涨跌 {change}")
+    if pending:
+        lines.append("待更新\n" + "、".join(row["name"] for row in pending))
+    if os.getenv("DASHBOARD_URL"):
+        lines.append(os.environ["DASHBOARD_URL"])
+    return title, lines, {key}
+
+
 def delivery(snapshot, now, mode, sent):
     if mode == "test":
         return "红利观察台 · 渠道测试", ["这是一条手动测试消息。", f"北京时间 {now:%Y-%m-%d %H:%M}"], set()
     if snapshot["generated"][:10] != now.date().isoformat():
         return None
+    if mode == "postmarket" or (mode == "scheduled" and now.time() < clock_time(9, 30)):
+        return rank_digest(snapshot, now, "postmarket" if mode == "postmarket" else "premarket", sent)
     if mode == "scheduled" and not (clock_time(8) <= now.time() < clock_time(14, 31)):
         return None
     if mode == "scheduled-final" and not (clock_time(14, 30) <= now.time() < clock_time(15)):
@@ -318,7 +370,7 @@ def reserved_delivery(snapshot, mode, folder, channels, phase, clock=lambda: dat
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--mode", choices=("alerts", "scheduled", "scheduled-final", "tail", "test"), default="alerts")
+    parser.add_argument("--mode", choices=("alerts", "scheduled", "scheduled-final", "postmarket", "tail", "test"), default="alerts")
     parser.add_argument("--channel", choices=("all", "ntfy", "wxpusher", "feishu", "pushplus", "email"), default="all")
     parser.add_argument("--snapshot", type=Path, default=Path("docs/snapshot.json"))
     parser.add_argument("--state", type=Path, default=Path(".monitor-state/sent.json"))

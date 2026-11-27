@@ -352,7 +352,8 @@ class RuleTests(unittest.TestCase):
             self.assertEqual(days, ["*", "*", "1-5"])
             span = [int(h) for h in hours.split("-")]
             planned.extend((h + 8) * 60 + int(minute) for h in range(span[0], span[-1] + 1))
-        self.assertEqual(sorted(planned), list(range(8 * 60, 14 * 60 + 31, 30)))
+        self.assertEqual(sorted(planned), list(range(8 * 60, 14 * 60 + 31, 30)) + [16*60+30, 17*60+30])
+        self.assertIn("github.event.schedule == '30 8-9 * * 1-5' && 'postmarket'", workflow)
         self.assertIn("github.event.schedule == '30 6 * * 1-5' && 'scheduled-final'", workflow)
 
     def test_scheduled_mode_only_reports_new_buy_points_until_1430(self):

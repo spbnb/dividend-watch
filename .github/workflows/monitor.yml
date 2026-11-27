@@ -8,6 +8,8 @@ on:
     - cron: '0 0-6 * * 1-5'
     - cron: '30 0-5 * * 1-5'
     - cron: '30 6 * * 1-5'
+    # 16:30 closing board, with a 17:30 retry for a missing receipt or market data.
+    - cron: '30 8-9 * * 1-5'
   workflow_dispatch:
     inputs:
       mode:
@@ -88,7 +90,7 @@ jobs:
         if: inputs.mode == 'test' || (github.event_name == 'schedule' && steps.restore.outcome == 'success' && steps.checkpoint.outcome == 'success')
         continue-on-error: true
         env: &alert_env
-          MODE: ${{ inputs.mode == 'test' && 'test' || github.event.schedule == '30 6 * * 1-5' && 'scheduled-final' || 'scheduled' }}
+          MODE: ${{ inputs.mode == 'test' && 'test' || github.event.schedule == '30 8-9 * * 1-5' && 'postmarket' || github.event.schedule == '30 6 * * 1-5' && 'scheduled-final' || 'scheduled' }}
           DASHBOARD_URL: https://spbnb.github.io/dividend-watch/
           FEISHU_WEBHOOK: ${{ secrets.FEISHU_WEBHOOK }}
           FEISHU_SECRET: ${{ secrets.FEISHU_SECRET }}

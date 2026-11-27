@@ -21,12 +21,13 @@
     </header>
     <div class="top-grid">
       <section class="panel meter" aria-labelledby="meter-title">
-        <h2 id="meter-title">当前温度</h2>
+        <h2 id="meter-title">当前综合温度</h2>
         <div class="dial">
           <canvas id="gauge" aria-hidden="true"></canvas>
           <div class="dial-reading"><strong id="temperature">—</strong><span id="status"></span></div>
         </div>
         <ul class="band-key" id="band-key" aria-label="温度区间"></ul>
+        <div class="components" id="components" aria-label="综合温度的各项贡献"></div>
         <p class="note" id="asof"></p>
       </section>
       <section class="panel history" aria-labelledby="history-title">

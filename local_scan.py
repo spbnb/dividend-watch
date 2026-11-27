@@ -31,11 +31,14 @@ def collect_local(items, now, cache_path):
         key = "long:" + item["code"]
         if key in data:
             data[key] = closed_history(data, item, now)
-    observed = {k: v for k, v in data.items() if k.startswith(("history:", "nav:", "cash:", "long:")) and v}
+    observed = {k: v for k, v in data.items()
+                if (k.startswith(("history:", "nav:", "long:")) and v)
+                or (k.startswith(("cash:", "calendar:")) and v is not None)}
     if using_cache and observed.keys() <= references.keys():
         return data
     references.update(observed)
     data.update(references)
+    data["cn_trading_day"] = data.get("calendar:" + now.date().isoformat())
     cache_path.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=cache_path.parent, delete=False) as f:
         json.dump({"checked": (checked if using_cache else now).isoformat(), "references": references}, f)

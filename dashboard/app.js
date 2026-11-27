@@ -11,6 +11,10 @@ const pct = n => n == null ? "—" : (n > 0 ? "+" : "") + n.toFixed(2) + "%";
 const dateText = iso => iso ? iso.replace("T", " ").slice(0, 16) : "—";
 const signedClass = value => value > 0 ? "up" : value < 0 ? "down" : "";
 const digits = r => r.index ? 4 : r.type === "ETF" ? 3 : 2;
+const observedDay = r => Number.isFinite(r.temperature) ? (r.temperature_at || "").slice(0, 10) : "";
+const rankingDay = snapshot.rows.map(observedDay).sort().at(-1) || "";
+const comparable = r => Number.isFinite(r.temperature) && (!rankingDay || observedDay(r) === rankingDay);
+const dayChange = r => Object.hasOwn(r, "rank_day_pct") ? r.rank_day_pct : r.pct;
 
 function el(tag, text, className) {
   const node = document.createElement(tag);
@@ -26,7 +30,8 @@ function displayCode(r) {
 
 function details(r) {
   const values = [
-    ["数据来源", r.source || "行情暂缺"], ["价格时间 · 北京", dateText(r.at)],
+    ["最新价 / 净值", fmt(r.price, digits(r)) + " " + r.currency], ["距价格首档", pct(r.gap)], ["提醒状态", r.label],
+    ["温度观测 · 北京", dateText(r.temperature_at)], ["数据来源", r.source || "行情暂缺"], ["价格时间 · 北京", dateText(r.at)],
     ["首档 / 二档", fmt(r.first, digits(r)) + (r.second ? " / " + fmt(r.second, digits(r)) : "") + " " + r.currency]
   ];
   const limits = (first, second, unit = "") => first == null ? "" :
@@ -54,49 +59,59 @@ function details(r) {
   return dl;
 }
 
-function makeRow(r) {
-  const tr = el("tr", null, "row");
-  const first = el("td");
-  const button = el("button", null, "name-button");
-  const detailId = "detail-" + r.code;
-  const typeIcon = {"A 股": ["A", "stock"], "港股": ["HK", "hk"], "场外基金": ["基", "fund"], ETF: ["ETF", "etf"]}[r.type];
-  const icon = el("span", typeIcon[0], "type-icon " + typeIcon[1]);
-  icon.setAttribute("aria-hidden", "true");
-  const name = el("span");
-  name.append(el("b", r.name), el("small", displayCode(r), "code"));
-  button.append(icon, name);
-  button.setAttribute("aria-controls", detailId);
-  button.setAttribute("aria-label", r.name + "，行情与触发条件详情");
-  first.append(button);
-  const thermometer = el("a", "温度计" + (r.temperature == null ? "" : " · " + r.temperature + "° " + r.temperature_band), "thermo-link");
-  thermometer.href = "thermometers/" + encodeURIComponent(r.code) + ".html";
-  first.append(thermometer);
-  tr.append(first);
-  const columns = [
-    ["最新价 / 净值", fmt(r.price, digits(r)), "price", true],
-    ["日涨跌", pct(r.pct), signedClass(r.pct), false],
-    ["首档目标", fmt(r.first, digits(r)), "", true],
-    ["距首档", pct(r.gap), "", false]
-  ];
-  for (const [label, value, cls, currency] of columns) {
-    const td = el("td", null, "num " + cls);
-    td.dataset.label = label;
-    if (currency && value !== "—") td.append(el("span", r.currency === "HKD" ? "HK$" : "¥", "currency"));
-    td.append(document.createTextNode(value));
-    if (r.index && cls === "price" && r.source) {
-      const kind = r.source.includes("已公布") ? "公布净值" : r.source.includes("指数") ? "指数推算" : "盘中估值";
-      td.append(el("small", kind, "code"));
-    }
-    tr.append(td);
+function thermoURL(r) {
+  return "thermometers/" + encodeURIComponent(r.code) + ".html";
+}
+
+function showExtremes() {
+  const priced = snapshot.rows.filter(comparable);
+  byId("rank-date").textContent = rankingDay ? "温度观测 " + rankingDay + " · 同日 " + priced.length + "/" + snapshot.rows.length + " 只" : "温度观测日期待更新";
+  for (const [id, pick] of [["hottest", Math.max], ["coldest", Math.min]]) {
+    const link = byId(id);
+    if (!priced.length) { link.textContent = "温度待更新"; continue; }
+    const score = pick(...priced.map(r => r.temperature));
+    const tied = priced.filter(r => r.temperature === score);
+    const r = tied[0];
+    link.href = thermoURL(r);
+    link.replaceChildren(el("b", r.name), el("strong", fmt(score, 1) + "°"));
+    if (tied.length > 1) link.append(el("small", "等 " + tied.length + " 只并列"));
   }
-  const status = el("td");
-  const cls = hits.has(r.status) ? "hits" : guards.has(r.status) ? "guard" : r.status.startsWith("observe") ? "quiet" : "";
-  status.append(el("span", r.label, "badge " + cls));
-  tr.append(status);
+}
+
+function makeRow(r) {
+  const shades = {超低温:"ice",低温:"cool",中温:"neutral",高温:"warm",超高温:"hot"};
+  const shade = shades[r.temperature_band] || "unknown";
+  const tr = el("tr", null, "row " + shade);
+  if (shade === "neutral" && r.temperature !== 50) tr.classList.add(r.temperature < 50 ? "cool-side" : "warm-side");
+  const first = el("td"), link = el("a", r.name, "name-link");
+  link.href = thermoURL(r);
+  link.setAttribute("aria-label", r.name + "温度计");
+  first.append(link, el("small", displayCode(r), "code"));
+  const move = el("td", null, "num move");
+  const change = dayChange(r);
+  move.append(el("strong", pct(change), signedClass(change)), el("small", pct(r.ytd_pct), signedClass(r.ytd_pct)));
+  const changeAt = Object.hasOwn(r, "rank_day_pct") ? r.temperature_at : r.at;
+  move.title = "当日涨跌日期 " + (changeAt || "待更新").slice(0,10);
+  const divYield = el("td", r.yield_pct == null ? "—" : fmt(r.yield_pct) + "%", "num");
+  const temp = el("td", r.temperature == null ? "—" : fmt(r.temperature, 1) + "°", "num temp");
+  if (Number.isFinite(r.temperature) && rankingDay && !comparable(r)) {
+    const date = observedDay(r);
+    const stamp = el("small", date ? date.slice(5) : "日期待核", "older-date");
+    stamp.title = date ? "历史观测 " + date : "温度观测日期待核";
+    temp.append(stamp);
+  }
+  const band = el("td");
+  band.append(el("b", r.temperature_band || "—", "band-name"));
+  const button = el("button", "行情", "quote-toggle");
+  const detailId = "detail-" + r.code;
+  button.setAttribute("aria-controls", detailId);
+  button.setAttribute("aria-label", r.name + "行情与触发条件");
+  band.append(button);
+  tr.append(first, move, divYield, temp, band);
   const extra = el("tr", null, "row-details");
   extra.id = detailId;
   const cell = el("td");
-  cell.colSpan = 6;
+  cell.colSpan = 5;
   cell.append(details(r));
   extra.append(cell);
   function toggle(open) {
@@ -117,7 +132,15 @@ function redraw() {
     (r.name + r.code + displayCode(r)).toLowerCase().includes(query));
   const sort = byId("sort").value;
   const rank = r => hits.has(r.status) ? 0 : guards.has(r.status) ? 1 : 2;
-  if (sort === "change") rows.sort((a, b) => (b.pct ?? -Infinity) - (a.pct ?? -Infinity));
+  if (sort === "hot" || sort === "cold") {
+    const sign = sort === "hot" ? -1 : 1;
+    rows.sort((a, b) => {
+      if (a.temperature == null || b.temperature == null) return Number(a.temperature == null) - Number(b.temperature == null);
+      if (rankingDay && observedDay(a) !== observedDay(b)) return observedDay(b).localeCompare(observedDay(a));
+      return sign * (a.temperature - b.temperature) || a.code.localeCompare(b.code);
+    });
+  } else if (sort === "gap") rows.sort((a, b) => (a.gap ?? Infinity) - (b.gap ?? Infinity));
+  else if (sort === "change") rows.sort((a, b) => (dayChange(b) ?? -Infinity) - (dayChange(a) ?? -Infinity));
   else if (sort === "status") rows.sort((a, b) => rank(a) - rank(b));
   byId("rows").replaceChildren(...rows.flatMap(makeRow));
   byId("empty").hidden = rows.length > 0;
@@ -181,7 +204,8 @@ byId("guard-count").textContent = snapshot.rows.filter(r => guards.has(r.status)
 const indexQuote = snapshot.benchmarks.CN;
 byId("index-price").textContent = indexQuote ? indexQuote.price.toLocaleString("en-US", {minimumFractionDigits: 2, maximumFractionDigits: 2}) : "—";
 byId("index-change").textContent = pct(indexQuote?.pct);
-for (const type of types) {
+showExtremes();
+for (const type of types.filter(t => t === "全部" || snapshot.rows.some(r => r.type === t))) {
   const b = el("button", type);
   b.dataset.type = type;
   b.onclick = () => { view.type = type; redraw(); };

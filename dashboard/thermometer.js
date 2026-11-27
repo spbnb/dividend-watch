@@ -56,6 +56,13 @@ function describe() {
   byId("asof").hidden = !byId("asof").textContent;
   byId("method").textContent = model.method || "";
   byId("source").textContent = model.source ? "数据来源 · " + model.source : "";
+  const parts = model.components || {};
+  for (const [key, label, weight] of [["position","250 日价格位置",50],["rsi14","RSI(14)",35],["rsi7","RSI(7)",15]]) {
+    const value = parts[key], row = el("div", null, "component");
+    row.append(el("span",label), el("small",(number(value) ? value.toFixed(1) : "—") + " × " + weight + "%"),
+      el("strong",number(value) ? (value * weight / 100).toFixed(2) + "°" : "—"));
+    byId("components").append(row);
+  }
   byId("price-axis").textContent = priceName + "（右轴）";
   bands.forEach((name, i) => {
     const li = el("li");

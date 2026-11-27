@@ -36,6 +36,8 @@ class LongHistoryTests(unittest.TestCase):
         response = 'var fS_code = "012708";var Data_netWorthTrend = ' + json.dumps(trend) + ';'
         item = {"code": "012708", "type": "场外基金", "index": "931446", "rsi_max": 35}
         with patch.object(market, "read", return_value=response) as fetch, \
+                patch.object(market, "cn_trading_day", return_value=False), \
+                patch.object(market, "fund_distributions", return_value=0.0), \
                 patch.object(market, "history", return_value=[]), \
                 patch.object(market, "estimate", return_value=None), \
                 patch.object(market, "reported_navs", return_value={}), \
