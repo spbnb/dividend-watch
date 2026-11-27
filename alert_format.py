@@ -31,7 +31,7 @@ def alert_card(row, signals, now):
     fund = bool(row.get("index"))
     digits = 4 if fund else 3 if row["type"] == "ETF" else 2
     unit = "港元" if row["currency"] == "HKD" else "元"
-    price, first, second = live_price(row, now), row["first"], row.get("second")
+    price, first, second = live_price(row, now), row.get("first"), row.get("second")
     basis = "估算净值" if fund else "价格"
     parts = [f"{stock_name(row)} · {display_code(row['code'])}"]
     if row.get("reading_basis") and any(s.startswith(("cold", "rsi")) for s in signals):
@@ -57,7 +57,9 @@ def alert_card(row, signals, now):
     if "drawdown" in signals:
         parts.append(f"{row['drawdown_days']} 日回撤　{abs(row['drawdown']):.2f}%（阈值 {row['drawdown_pct']:g}%）")
 
-    if price is not None:
+    if row["type"] == "指数":
+        parts.append(f"指数点位 {price:,.2f} 点" if price is not None else "指数点位待更新")
+    elif price is not None:
         state = "未到首档" if price > first else "已到二档" if second is not None and price <= second else "已到首档"
         value = "估算净值" if fund else "现价"
         parts.append(f"{value} {price:.{digits}f} {unit}" + (f" · {state}" if not {"first", "second"} & signals else ""))
@@ -68,8 +70,9 @@ def alert_card(row, signals, now):
         parts.append("当前估值待更新" if fund else "当前报价待更新")
         if fund and row.get("nav") is not None and row.get("nav_day"):
             parts.append(f"最近公布净值 {row['nav']:.{digits}f} 元（{row['nav_day']}）")
-    targets = f"首档 {first:.{digits}f}" + (f" · 二档 {second:.{digits}f}" if second is not None else "")
-    parts.append(f"{targets} {unit}")
+    if first is not None:
+        targets = f"首档 {first:.{digits}f}" + (f" · 二档 {second:.{digits}f}" if second is not None else "")
+        parts.append(f"{targets} {unit}")
     if row.get("premium_max") is not None and row.get("premium") is not None:
         parts.append(f"盘中溢价 {row['premium']:.2f}%（上限 {row['premium_max']:g}%）")
     elif row.get("show_premium") and price is not None:
@@ -131,7 +134,7 @@ def format_alerts(events, now, source, *, preview=False, dashboard_url=None):
         topics.append("指数跌幅" + ("二档" if "index_second" in all_signals else "首档"))
     if "drawdown" in all_signals:
         topics.append("回撤触发")
-    if not prices and all(live_price(row, now) is not None and row["price"] > row["first"] for row in rows):
+    if not prices and all(row.get("first") is not None and live_price(row, now) is not None and row["price"] > row["first"] for row in rows):
         topics.append("均未到首档" if len(rows) > 1 else "未到首档")
     title = ("版式预览｜" if preview else "") + subject + "｜" + "，".join(topics) + " · " + source
     stamp = f"北京时间 {now:%Y-%m-%d %H:%M}"

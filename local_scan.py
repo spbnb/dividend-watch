@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from alert_format import alert_card
-from market import CST, collect
+from market import BENCHMARKS, CST, collect
 from monitor import ROOT, build, render, session_end
 from temperature import closed_history
 from notify import covered_keys, event_keys, signal_time
@@ -24,6 +24,11 @@ def collect_local(items, now, cache_path):
         reusable = timedelta(0) <= now - checked < timedelta(minutes=15)
     except (FileNotFoundError, ValueError, KeyError, TypeError):
         references, reusable = {}, False
+    active = {item["code"] for item in items} | set(BENCHMARKS.values())
+    filtered = {k: v for k, v in references.items()
+                if k.partition(":")[2] in active or k == "calendar:" + now.date().isoformat()}
+    dropped = len(filtered) != len(references)
+    references = filtered
     using_cache = bool(reusable and references)
     data = collect(items, now.date(), references=references) if using_cache else collect(items, now.date())
     # Keep same-day reference data if an occasional history request fails.
@@ -44,7 +49,7 @@ def collect_local(items, now, cache_path):
             value = {**value, **{k: v for k, v in cached.items() if k.startswith("yield_")}}
         if value.get("bars") or value.get("yield_pct") is not None:
             observed[key] = value
-    if using_cache and observed.keys() <= references.keys():
+    if using_cache and not dropped and observed.keys() <= references.keys():
         return data
     references.update(observed)
     data.update(references)
@@ -64,10 +69,11 @@ def live_report(snapshot, now):
     events, table = [], []
     for row in snapshot["rows"]:
         digits = 4 if row.get("index") else 3 if row["type"] == "ETF" else 2
-        value = f"{row['price']:.{digits}f} {row['currency']}" if row["price"] is not None else "—"
+        unit = "点" if row["type"] == "指数" else row["currency"]
+        value = f"{row['price']:.{digits}f} {unit}" if row["price"] is not None else "—"
         if row.get("index") and row["price"] and row["source"] and "已公布" not in row["source"]:
             value += "（估）"
-        targets = f"{row['first']:.{digits}f}" + (f" / {row['second']:.{digits}f}" if row.get("second") else "")
+        targets = "—" if row.get("first") is None else f"{row['first']:.{digits}f}" + (f" / {row['second']:.{digits}f}" if row.get("second") else "")
         indicators = []
         for label, field, first, second, unit in (
                 ("RSI(14)", "rsi", "rsi_max", "rsi_second_max", ""),
@@ -99,7 +105,7 @@ def live_report(snapshot, now):
             "groups": snapshot["groups"], "total": len(snapshot["rows"]),
             "priced": sum(r["price"] is not None for r in snapshot["rows"]),
             "open": [k for k, active in snapshot["session"].items() if active], "events": events,
-            "columns": ["标的", "现价 / 净值", "价格首档 / 二档", "指标现值（首档 / 二档）", "状态", "行情时间（北京时间）", "温度计"],
+            "columns": ["标的", "现价 / 净值 / 指数点位", "价格首档 / 二档", "指标现值（首档 / 二档）", "状态", "行情时间（北京时间）", "温度计"],
             "rows": table}
 
 

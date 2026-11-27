@@ -1,97 +1,107 @@
-"""Compare temperature entry rules with next-close execution on the monitored securities."""
+"""Compare close-to-close index strategies. Both signals and returns use the same index."""
 
 import argparse
 import csv
 import hashlib
 import json
-from bisect import bisect_left, insort
+import math
+from bisect import bisect_left, bisect_right, insort
+from collections import deque
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date
 from pathlib import Path
 from statistics import correlation, mean, median
 
-import market
+import csi_reference
+import global_reference
 import temperature as temp
 
 
 ROOT = Path(__file__).resolve().parent
-RULES = {"current": "现行综合温度 ≤25", "ultra": "现行超低温 ≤10", "no_fast": "价格位置和 RSI14 各半 ≤25",
-         "rank": "250 日价格位置 ≤25", "rsi": "RSI14 ≤30",
-         "trend_cold": "综合低温且高于 200 日均线", "monthly": "10 月均线择时", "hold": "买入持有"}
+SYMBOLS = {"H30269": "H20269", "000922": "H00922", "930914": "H20914", "980092": "480092",
+           "HSHYLV": "HSHYLV TRI", "SPCLLHCP": "SPCLLHCP"}
+ABSOLUTE = ("current", "ultra", "no_fast", "rank", "rsi", "trend_cold", "monthly", "hold")
+ALL = ABSOLUTE + ("cold_pct", "ultra_pct")
+FEES = (0.0, .001, .003)
 
 
 def download(code, cutoff):
-    prices = market.adjusted_history(code, cutoff)
-    ref = market.benchmark_reference(code, cutoff) if code in market.ETF_BENCHMARKS else {}
-    if len(prices) < 2:
-        raise ValueError(f"{code} missing ETF/stock trading history")
-    return code, {"prices": prices, "ref": ref}
+    adapter = global_reference if code in ("HSHYLV", "SPCLLHCP") else csi_reference
+    return code, adapter.get_reference(code, cutoff)
 
 
 def factors(bars):
     closes = [v for _, v in bars]
     window, months, result = [], [], []
-    trend = None
+    monthly = None
     for i, ((day, close), slow, fast) in enumerate(zip(bars, temp.rsi_series(closes, 14), temp.rsi_series(closes, 7))):
         pos = temp.rank(close, window)
         if i >= temp.WINDOW:
             window.pop(bisect_left(window, closes[i - temp.WINDOW]))
         insort(window, close)
-        # Only a completed calendar month can set the monthly allocation.
-        # Its end-of-month signal is first tradable at a strictly later ETF close.
+        # By the next observation's execution close, the prior month's last observed
+        # close is known. Only its successor's calendar month, never its price, is used.
         if i + 1 < len(bars) and day[:7] != bars[i + 1][0][:7]:
             months.append(close)
             if len(months) >= 10:
-                trend = close > mean(months[-10:])
-        if pos is None or trend is None:
+                monthly = months[-1] > mean(months[-10:])
+        if pos is None:
             continue
         score = temp.composite(pos, slow, fast)
-        result.append((day, {"current": score <= 25, "no_fast": round((pos + slow) / 2, 1) <= 25,
-                             "rank": pos <= 25, "rsi": slow <= 30,
-                             "trend_cold": score <= 25 and close > mean(closes[i-199:i+1]),
-                             "monthly": trend, "slow": slow, "fast": fast, "ultra": score <= 10}))
+        result.append((day, {"current": score <= 25, "ultra": score <= 10,
+                             "no_fast": round((pos + slow) / 2, 1) <= 25, "rank": pos <= 25,
+                             "rsi": slow <= 30, "trend_cold": score <= 25 and close > mean(closes[i-199:i+1]),
+                             "monthly": monthly, "slow": slow, "fast": fast, "score": score}))
     return result
 
 
-def aligned(prices, readings, start, end):
-    """Decision available strictly before each execution close, including cross-market holidays."""
-    days = [d for d, _ in readings]
+def relative_temperature(readings, window=750):
+    """Compare today's rounded score with earlier observations, averaging ties."""
+    ordered, queue, result = [], deque(), []
+    for day, state in readings:
+        score = state["score"]
+        if len(queue) == window:
+            pct = 50 * (bisect_left(ordered, score) + bisect_right(ordered, score)) / window
+            result.append((day, {**state, "cold_pct": pct <= 25, "ultra_pct": pct <= 10}))
+            ordered.pop(bisect_left(ordered, queue.popleft()))
+        insort(ordered, score)
+        queue.append(score)
+    return result
+
+
+def aligned(bars, readings, start, end, *, signal_since=None):
+    """Align a completed observation to exactly the next close in its own index series."""
+    states = dict(readings)
     rows = []
-    for day, close in prices:
-        if not start <= day <= end or not days or day <= days[0]:
+    for i in range(1, len(bars)):
+        day, close = bars[i]
+        signal_day = bars[i-1][0]
+        state = states.get(signal_day)
+        if not start <= day <= end or not state or (signal_since and signal_day < signal_since):
             continue
-        j = bisect_left(days, day) - 1
-        signal_day, state = readings[j]
-        fresh = (date.fromisoformat(day) - date.fromisoformat(signal_day)).days <= 10
-        if not fresh and not rows:
-            continue
-        # Ignore signal levels already active before the test/listing start.
-        prev = rows[-1][3] if rows else readings[j-1][1] if j else {}
-        rows.append((day, close, signal_day, state if fresh else {}, prev))
+        previous = states.get(bars[i-2][0], state) if i >= 2 else state
+        rows.append((day, close, signal_day, state, previous))
     return rows
 
 
 def simulate(rows, key, fee):
     nav = peak = 1.0
     worst = 0.0
-    exposed = entries = intervals = 0
-    entry = due = previous_price = last_signal = None
+    exposed = entries = 0
+    entry = due = previous_price = None
     finished = []
-    for i, (day, price, signal_day, state, prior) in enumerate(rows):
-        if previous_price is not None:
-            intervals += 1
-            if entry is not None:
-                nav *= price / previous_price
-                exposed += 1
-        # Intraperiod drawdown is measured at daily closes, including costs.
-        new_signal = signal_day != last_signal
-        active = state.get(key, False)
+    for i, (day, price, _, state, prior) in enumerate(rows):
+        if previous_price is not None and entry is not None:
+            nav *= price / previous_price
+            exposed += 1
         if key == "hold":
             target = True
         elif key == "monthly":
-            target = active if state else entry is not None
+            target = bool(state.get(key))
+        elif entry is not None:
+            target = day < due
         else:
-            target = day < due if entry is not None else bool(new_signal and active and not prior.get(key))
+            target = state[key] and not prior.get(key)
         if entry is not None and not target:
             nav *= 1 - fee
             finished.append(100 * (price / entry * (1 - fee)**2 - 1))
@@ -105,11 +115,11 @@ def simulate(rows, key, fee):
             nav *= 1 - fee
         peak = max(peak, nav)
         worst = min(worst, nav / peak - 1)
-        previous_price, last_signal = price, signal_day
+        previous_price = price
     years = (date.fromisoformat(rows[-1][0]) - date.fromisoformat(rows[0][0])).days / 365.2425
-    return {"start": rows[0][0], "end": rows[-1][0], "cagr": round(100*(nav ** (1 / years)-1), 3),
-            "drawdown": round(100*worst, 3), "exposure": round(100*exposed/intervals, 2),
-            "entries": entries, "completed": len(finished),
+    return {"start": rows[0][0], "end": rows[-1][0], "total_pct": round(100*(nav-1), 3),
+            "cagr": round(100*(nav ** (1/years)-1), 3), "drawdown": round(100*worst, 3),
+            "exposure": round(100*exposed/(len(rows)-1), 2), "entries": entries, "completed": len(finished),
             "positive": sum(x > 0 for x in finished), "sum_completed_pct": round(sum(finished), 4)}
 
 
@@ -120,94 +130,131 @@ def table(path, records):
         writer.writerows(records)
 
 
-def compare(inputs, cutoff, dest):
-    rows, diagnostics, basis_checks, index_checks = [], [], [], []
-    for code, data in sorted(inputs.items()):
-        prices = [(d, p) for d, p in data["prices"] if d <= cutoff]
-        ref = data.get("ref") or {}
-        idx = [(d, p) for d, p in (ref.get("bars") or []) if d <= cutoff]
-        use_index = len(idx) > temp.WINDOW and idx[-1][0] >= prices[-1][0][:7] + "-01"
-        bars = idx if use_index else prices
-        basis = ref["symbol"] if use_index else code + "复权"
-        study_start = max("2023-01-01", (ref.get("launch") or "1900") if use_index else "1900")
-        if use_index and code == "sz159201":
-            study_start = max(study_start, "2024-08-15")
+def verified_series(code, ref, cutoff):
+    symbol = SYMBOLS[code]
+    if ref.get("symbol") != symbol or ref.get("kind") != ("价格指数" if code == "SPCLLHCP" else "全收益指数"):
+        raise ValueError(f"{code} expected verified index series {symbol}")
+    currency = "HKD" if code in ("930914", "HSHYLV") else "CNY"
+    if ref.get("currency") != currency:
+        raise ValueError(f"{code} unexpected currency")
+    bars = []
+    for day, raw in ref["bars"]:
+        value = float(raw)
+        if not math.isfinite(value) or value <= 0 or (bars and day <= bars[-1][0]):
+            raise ValueError(f"{symbol} invalid close or ordering on {day}")
+        if date.fromisoformat(day).isoformat() <= cutoff:
+            bars.append((day, value))
+    if len(bars) <= temp.WINDOW+1:
+        raise ValueError(f"{symbol} insufficient daily closes")
+    return bars
+
+
+def common_bounds(samples, codes):
+    dates = set.intersection(*({row[0] for row in samples[code]} for code in codes))
+    if len(dates) < 2:
+        raise ValueError("Need two shared observed endpoints for the comparison")
+    return min(dates), max(dates)
+
+
+def summary(records):
+    groups = {}
+    for r in records:
+        groups.setdefault((r["period"], r["fee"], r["rule"]), []).append(r)
+    output = []
+    for (period, fee, rule), group in groups.items():
+        holds = {r["monitor_code"]: r for r in groups[(period, fee, "hold")]}
+        output.append({"period": period, "fee": fee, "rule": rule, "indices": len(group),
+                       **{f"median_{k}": round(median(r[k] for r in group), 3)
+                          for k in ("total_pct", "cagr", "drawdown", "exposure")},
+                       **{k: sum(r[k] for r in group) for k in ("entries", "completed", "positive")},
+                       "outperformed_hold": sum(r["cagr"] > holds[r["monitor_code"]]["cagr"] for r in group)})
+    return output
+
+
+def compare(refs, cutoff, dest):
+    results, diagnostics, sensitivity, counts = [], [], [], []
+    absolute, relative = {}, {}
+    for code in SYMBOLS:
+        ref = refs[code]
+        bars = verified_series(code, ref, cutoff)
+        live = max(ref["launch"], ref.get("method_since") or ref["launch"])
         signal = factors(bars)
-        total = aligned(prices, signal, study_start, cutoff)
-        if len(total) < 2:
-            raise ValueError(f"{code} insufficient aligned data")
-        used = {s: v for _, _, s, v, _ in total if v}
-        states = list(used.values())
-        def signature(series):
-            return hashlib.sha256(json.dumps(series, separators=(",", ":")).encode()).hexdigest()[:16]
-        diagnostics.append({"code": code, "basis": basis, "start": total[0][0], "end": total[-1][0],
-                            "signal_days": len(states), "cold_days": sum(s["current"] for s in states),
-                            "ultra_days": sum(s["ultra"] for s in states),
+        ranked = relative_temperature(signal)
+        absolute[code] = aligned(bars, signal, live, cutoff, signal_since=live)
+        relative[code] = aligned(bars, ranked, live, cutoff, signal_since=live)
+        if min(len(absolute[code]), len(relative[code])) < 2:
+            raise ValueError(f"{code} insufficient common-rule sample for {cutoff}")
+        states = [r[3] for r in absolute[code]]
+        metadata = {"monitor_code": code, "return_series": ref["symbol"], "kind": ref["kind"], "currency": ref["currency"]}
+        diagnostics.append({**metadata, "name": ref["name"], "provider": ref["provider"], "source": ref["url"],
+                            "history_start": bars[0][0], "history_end": bars[-1][0], "bars": len(bars),
+                            "published": ref["launch"], "method_since": ref.get("method_since") or "",
+                            "first_execution": absolute[code][0][0], "first_rank_execution": relative[code][0][0],
+                            "eligible_signal_days": len(states), "min_score": min(s["score"] for s in states),
+                            "cold_days": sum(s["current"] for s in states), "ultra_days": sum(s["ultra"] for s in states),
                             "rsi_correlation": round(correlation([s["slow"] for s in states], [s["fast"] for s in states]), 4),
-                            "signal_hash": signature(bars), "trade_hash": signature(prices)})
-        for period, start, end, fee in (("full", study_start, cutoff, .001), ("early", study_start, "2024-12-31", .001),
-                                        ("late", max(study_start, "2025-01-01"), cutoff, .001),
-                                        ("high_cost", study_start, cutoff, .003)):
-            sample = aligned(prices, signal, start, end)
-            if len(sample) < 2:
-                continue
-            for key in RULES:
-                rows.append({"code": code, "basis": basis, "period": period, "fee": fee, "rule": key,
-                             **simulate(sample, key, fee)})
-        if use_index:
-            live_since = max(ref.get("launch") or idx[0][0], ref.get("method_since") or "1900")
-            for period, end in (("published", cutoff), ("pre_2023", "2022-12-31")):
-                sample = aligned(idx, signal, live_since, end)
-                if len(sample) < 250:
-                    continue
-                for key in RULES:
-                    index_checks.append({"code": code, "basis": basis, "kind": ref["kind"], "currency": ref["currency"],
-                                         "period": period, "rule": key, **simulate(sample, key, .001)})
-            fund_signal = factors(prices)
-            etf_days = aligned(prices, fund_signal, study_start, cutoff)
-            if len(etf_days) > 1:
-                start = max(etf_days[0][0], total[0][0])
-                for label, series in ((basis, signal), (code + "复权", fund_signal)):
-                    sample = aligned(prices, series, start, cutoff)
-                    basis_checks.append({"code": code, "basis": label, **simulate(sample, "current", .001)})
+                            "sha256": hashlib.sha256(json.dumps(bars, separators=(",", ":")).encode()).hexdigest()})
+        # Restrict even the warm-up data to the published/current methodology period.
+        strict_bars = [(d, p) for d, p in bars if d >= live]
+        strict = factors(strict_bars)
+        for scope, observations, keys in (("absolute", strict, ABSOLUTE), ("relative", relative_temperature(strict), ALL)):
+            sample = aligned(strict_bars, observations, live, cutoff, signal_since=live)
+            for rule in keys:
+                m = simulate(sample, rule, .001) if len(sample) >= 2 else {}
+                sensitivity.append({**metadata, "warmup": "published_only", "scope": scope, "rule": rule,
+                                    "points": len(sample), **{k: m.get(k) for k in
+                                      ("start", "end", "cagr", "drawdown", "exposure", "entries", "completed")}})
+    # Signal days outside either end never enter simulations. The two endpoints are
+    # actual closes on all included markets; within the window each keeps its own calendar.
+    common = common_bounds(absolute, SYMBOLS)
+    common_rank = common_bounds(relative, SYMBOLS)
+    csi_long = ("H30269", "000922", "930914")
+    csi_span = common_bounds(relative, csi_long)
+    for code in SYMBOLS:
+        ref = refs[code]
+        meta = {"monitor_code": code, "return_series": ref["symbol"], "kind": ref["kind"], "currency": ref["currency"]}
+        periods = [("published", absolute[code], None, ABSOLUTE),
+                   ("rank_ready", relative[code], None, ALL),
+                   ("common", absolute[code], common, ABSOLUTE),
+                   ("common_rank", relative[code], common_rank, ALL)]
+        if code in csi_long:
+            periods.append(("csi_long", relative[code], csi_span, ALL))
+        for period, observations, bounds, rules in periods:
+            sample = [r for r in observations if bounds is None or bounds[0] <= r[0] <= bounds[1]]
+            for rule in rules:
+                for fee in FEES:
+                    results.append({**meta, "period": period, "fee": fee, "rule": rule, **simulate(sample, rule, fee)})
+                if period in ("rank_ready", "common_rank") and rule in ("current", "ultra", "cold_pct", "ultra_pct"):
+                    counts.append({**meta, "period": period, "rule": rule,
+                                   "start": sample[0][0], "end": sample[-1][0], "signal_days": len(sample),
+                                   "hit_days": sum(bool(r[3][rule]) for r in sample),
+                                   "crossings": sum(bool(r[3][rule] and not r[4][rule]) for r in sample)})
     dest.mkdir(parents=True, exist_ok=True)
-    table(dest / "strategy-results.csv", rows)
-    table(dest / "strategy-inputs.csv", diagnostics)
-    if basis_checks:
-        table(dest / "strategy-basis.csv", basis_checks)
-    if index_checks:
-        table(dest / "strategy-indices.csv", index_checks)
-    for cohort in ("ETF", "stock"):
-        for period in ("full", "early", "late", "high_cost"):
-            for key in RULES:
-                part = [r for r in rows if (r["code"] in market.ETF_BENCHMARKS) == (cohort == "ETF")
-                        and r["rule"] == key and r["period"] == period]
-                if part:
-                    print(cohort, period, key, len(part), *[round(median(r[k] for r in part), 2)
-                          for k in ("cagr", "drawdown", "exposure")], sum(r["entries"] for r in part),
-                          sum(r["completed"] for r in part), sum(r["positive"] for r in part))
+    for name, records in (("results", results), ("inputs", diagnostics), ("indices", summary(results)),
+                          ("basis", sensitivity), ("percentiles", counts)):
+        table(dest / f"strategy-{name}.csv", records)
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--as-of", type=date.fromisoformat, required=True)
-    parser.add_argument("--cache", type=Path, help="private input cache outside the public dashboard")
+    parser.add_argument("--cache", type=Path, help="private cache of reference indices only")
     parser.add_argument("--output", type=Path, default=ROOT / "research")
     args = parser.parse_args()
     if args.cache and args.cache.is_file():
         payload = json.loads(args.cache.read_text(encoding="utf-8"))
-        if payload["as_of"] != args.as_of.isoformat():
-            raise ValueError("cache date differs")
-        inputs = payload["data"]
+        if payload.get("as_of") != args.as_of.isoformat() or set(payload.get("indices", {})) != set(SYMBOLS):
+            raise ValueError("cache must match the requested date and six index identities")
+        refs = payload["indices"]
     else:
-        items = json.loads((ROOT / "watchlist.json").read_text(encoding="utf-8"))
-        codes = [item["code"] for item in items if item["type"] != "场外基金"]
         with ThreadPoolExecutor(max_workers=6) as pool:
-            inputs = dict(pool.map(lambda code: download(code, args.as_of), codes))
+            refs = dict(pool.map(lambda code: download(code, args.as_of), SYMBOLS))
+        for code, ref in refs.items():
+            verified_series(code, ref, args.as_of.isoformat())
         if args.cache:
             args.cache.parent.mkdir(exist_ok=True, parents=True)
-            args.cache.write_text(json.dumps({"as_of": args.as_of.isoformat(), "data": inputs}), encoding="utf-8")
-    compare(inputs, args.as_of.isoformat(), args.output)
+            args.cache.write_text(json.dumps({"as_of": args.as_of.isoformat(), "indices": refs}), encoding="utf-8")
+    compare(refs, args.as_of.isoformat(), args.output)
 
 
 if __name__ == "__main__":

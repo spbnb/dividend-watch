@@ -160,7 +160,8 @@ def event_keys(row, now, benchmarks):
 def line_for(row):
     """Compact level listing for the optional end-of-day review."""
     digits = 4 if row.get("index") else (3 if row["type"] == "ETF" else 2)
-    price = f"{row['price']:.{digits}f} {row['currency']}" if row["price"] else "暂无"
+    unit = "点" if row["type"] == "指数" else row["currency"]
+    price = f"{row['price']:.{digits}f} {unit}" if row["price"] else "暂无"
     label = row["label"]
     reasons = row["reasons"]
     details = "、".join(reasons)
@@ -170,8 +171,10 @@ def line_for(row):
         details += f"，溢价 {row['premium']:.2f}% 超过上限 {row['premium_max']:.2f}%"
     if row.get("index"):
         details = "，".join(filter(None, [row.get("source"), details]))
-    targets = f"{row['first']:.{digits}f}" + (f" / {row['second']:.{digits}f}" if row.get("second") else "")
-    return (f"{row['name']}（{row['code']}）　{price}｜目标 {targets}"
+    targets = ""
+    if row.get("first") is not None:
+        targets = f"｜目标 {row['first']:.{digits}f}" + (f" / {row['second']:.{digits}f}" if row.get("second") else "")
+    return (f"{row['name']}（{row['code']}）　{price}{targets}"
             f"｜{label}" + (f" · {details}" if details else ""))
 
 
@@ -217,14 +220,14 @@ def rank_digest(snapshot, now, phase, sent):
         daily = row.get("rank_day_pct")
         change = f"{daily:+.2f}%" if daily is not None else "—"
         ytd = f"{row['ytd_pct']:+.2f}%" if row.get("ytd_pct") is not None else "—"
-        index_etf = bool(row.get("benchmark_code"))
-        rate = row.get("reference_yield" if index_etf else "yield_pct")
+        index_row = row["type"] == "指数" if "type" in row else bool(row.get("benchmark_code"))
+        rate = row.get("reference_yield" if index_row else "yield_pct")
         income = f"{rate:.2f}%" if rate is not None else "—"
-        if index_etf and row.get("reference_yield_approx") and rate is not None:
+        if index_row and row.get("reference_yield_approx") and rate is not None:
             income = f"约{rate:g}%"
-        income_label = "指数股息率" if index_etf else "近365日分红率"
-        rate_date = f"（{row['reference_yield_at']}）" if index_etf and row.get("reference_yield_at") else ""
-        basis = " · " + row["reading_basis"] if index_etf else ""
+        income_label = "指数股息率" if index_row else "近365日分红率"
+        rate_date = f"（{row['reference_yield_at']}）" if index_row and row.get("reference_yield_at") else ""
+        basis = " · " + row["reading_basis"] if index_row else ""
         lines.append(f"{n:02}　{row['name']}　{row['temperature']:.1f}° · {row['temperature_band']}\n"
                      f"{row['code']}　当日 {change}　年内 {ytd}\n{income_label} {income}{rate_date}{basis}")
     if pending:

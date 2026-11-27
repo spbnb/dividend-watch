@@ -1,13 +1,109 @@
-﻿code,basis,start,end,cagr,drawdown,exposure,entries,completed,positive,sum_completed_pct
-sh512890,H20269,2023-01-03,2026-11-27,1.618,-9.729,13.82,1,0,0,0
-sh512890,sh512890复权,2023-01-03,2026-11-27,7.496,-12.315,39.53,2,1,1,24.5135
-sh513530,H20914,2023-05-09,2026-11-27,9.538,-16.69,40.12,2,1,1,32.9416
-sh513530,sh513530复权,2023-05-09,2026-11-27,8.284,-16.69,40.47,2,1,1,32.9416
-sh515180,H00922,2023-01-03,2026-11-27,8.392,-14.557,62.7,3,2,2,29.4521
-sh515180,sh515180复权,2023-01-03,2026-11-27,8.843,-14.557,62.59,3,2,2,31.3358
-sh515450,SPCLLHCP,2023-01-03,2026-11-27,10.348,-8.877,37.19,2,1,1,31.6331
-sh515450,sh515450复权,2023-01-03,2026-11-27,3.375,-5.317,11.48,1,0,0,0
-sz159201,480092,2026-03-13,2026-11-27,4.104,-7.333,60.69,1,0,0,0
-sz159201,sz159201复权,2026-03-13,2026-11-27,4.104,-7.333,60.69,1,0,0,0
-sz159545,HSHYLV TRI,2025-05-06,2026-11-27,-1.078,-8.804,28.35,1,0,0,0
-sz159545,sz159545复权,2025-05-06,2026-11-27,-5.595,-13.905,33.07,1,0,0,0
+﻿monitor_code,return_series,kind,currency,warmup,scope,rule,points,start,end,cagr,drawdown,exposure,entries,completed
+H30269,H20269,全收益指数,CNY,published_only,absolute,current,2895,2014-12-29,2026-11-26,5.026,-20.663,38.42,5,4
+H30269,H20269,全收益指数,CNY,published_only,absolute,ultra,2895,2014-12-29,2026-11-26,1.475,-13.662,17.0,2,2
+H30269,H20269,全收益指数,CNY,published_only,absolute,no_fast,2895,2014-12-29,2026-11-26,5.026,-20.663,38.42,5,4
+H30269,H20269,全收益指数,CNY,published_only,absolute,rank,2895,2014-12-29,2026-11-26,6.878,-20.881,46.82,6,5
+H30269,H20269,全收益指数,CNY,published_only,absolute,rsi,2895,2014-12-29,2026-11-26,7.501,-23.476,57.36,7,6
+H30269,H20269,全收益指数,CNY,published_only,absolute,trend_cold,2895,2014-12-29,2026-11-26,0.0,0.0,0.0,0,0
+H30269,H20269,全收益指数,CNY,published_only,absolute,monthly,2895,2014-12-29,2026-11-26,3.053,-40.729,73.22,12,11
+H30269,H20269,全收益指数,CNY,published_only,absolute,hold,2895,2014-12-29,2026-11-26,9.252,-42.494,100.0,1,0
+H30269,H20269,全收益指数,CNY,published_only,relative,current,2145,2018-01-23,2026-11-26,5.258,-19.694,40.44,4,3
+H30269,H20269,全收益指数,CNY,published_only,relative,ultra,2145,2018-01-23,2026-11-26,1.992,-13.662,22.95,2,2
+H30269,H20269,全收益指数,CNY,published_only,relative,no_fast,2145,2018-01-23,2026-11-26,5.258,-19.694,40.44,4,3
+H30269,H20269,全收益指数,CNY,published_only,relative,rank,2145,2018-01-23,2026-11-26,7.805,-19.694,51.77,5,4
+H30269,H20269,全收益指数,CNY,published_only,relative,rsi,2145,2018-01-23,2026-11-26,8.039,-23.176,66.0,6,5
+H30269,H20269,全收益指数,CNY,published_only,relative,trend_cold,2145,2018-01-23,2026-11-26,0.0,0.0,0.0,0,0
+H30269,H20269,全收益指数,CNY,published_only,relative,monthly,2145,2018-01-23,2026-11-26,-0.745,-37.069,74.21,11,10
+H30269,H20269,全收益指数,CNY,published_only,relative,hold,2145,2018-01-23,2026-11-26,6.971,-27.527,100.0,1,0
+H30269,H20269,全收益指数,CNY,published_only,relative,cold_pct,2145,2018-01-23,2026-11-26,8.499,-23.176,81.02,8,7
+H30269,H20269,全收益指数,CNY,published_only,relative,ultra_pct,2145,2018-01-23,2026-11-26,7.061,-19.694,63.99,6,5
+000922,H00922,全收益指数,CNY,published_only,absolute,current,4248,2009-06-05,2026-11-26,7.529,-26.955,59.85,11,10
+000922,H00922,全收益指数,CNY,published_only,absolute,ultra,4248,2009-06-05,2026-11-26,1.896,-19.734,17.14,3,3
+000922,H00922,全收益指数,CNY,published_only,absolute,no_fast,4248,2009-06-05,2026-11-26,7.938,-26.96,59.81,11,10
+000922,H00922,全收益指数,CNY,published_only,absolute,rank,4248,2009-06-05,2026-11-26,8.363,-23.943,59.81,11,10
+000922,H00922,全收益指数,CNY,published_only,absolute,rsi,4248,2009-06-05,2026-11-26,6.853,-31.668,74.05,13,12
+000922,H00922,全收益指数,CNY,published_only,absolute,trend_cold,4248,2009-06-05,2026-11-26,0.0,0.0,0.0,0,0
+000922,H00922,全收益指数,CNY,published_only,absolute,monthly,4248,2009-06-05,2026-11-26,2.422,-50.96,63.72,18,17
+000922,H00922,全收益指数,CNY,published_only,absolute,hold,4248,2009-06-05,2026-11-26,7.951,-45.659,100.0,1,0
+000922,H00922,全收益指数,CNY,published_only,relative,current,3498,2012-07-05,2026-11-26,9.548,-23.943,58.85,9,8
+000922,H00922,全收益指数,CNY,published_only,relative,ultra,3498,2012-07-05,2026-11-26,2.241,-14.027,13.87,2,2
+000922,H00922,全收益指数,CNY,published_only,relative,no_fast,3498,2012-07-05,2026-11-26,9.574,-23.961,58.79,9,8
+000922,H00922,全收益指数,CNY,published_only,relative,rank,3498,2012-07-05,2026-11-26,10.343,-23.943,58.79,9,8
+000922,H00922,全收益指数,CNY,published_only,relative,rsi,3498,2012-07-05,2026-11-26,9.497,-31.668,76.07,11,10
+000922,H00922,全收益指数,CNY,published_only,relative,trend_cold,3498,2012-07-05,2026-11-26,0.0,0.0,0.0,0,0
+000922,H00922,全收益指数,CNY,published_only,relative,monthly,3498,2012-07-05,2026-11-26,3.63,-50.96,66.34,15,14
+000922,H00922,全收益指数,CNY,published_only,relative,hold,3498,2012-07-05,2026-11-26,10.494,-45.659,100.0,1,0
+000922,H00922,全收益指数,CNY,published_only,relative,cold_pct,3498,2012-07-05,2026-11-26,8.824,-27.661,70.49,11,10
+000922,H00922,全收益指数,CNY,published_only,relative,ultra_pct,3498,2012-07-05,2026-11-26,7.249,-24.083,62.17,9,8
+930914,H20914,全收益指数,HKD,published_only,absolute,current,2219,2017-11-30,2026-11-26,3.905,-34.104,60.6,6,5
+930914,H20914,全收益指数,HKD,published_only,absolute,ultra,2219,2017-11-30,2026-11-26,4.656,-31.138,22.27,2,2
+930914,H20914,全收益指数,HKD,published_only,absolute,no_fast,2219,2017-11-30,2026-11-26,4.532,-34.104,60.5,6,5
+930914,H20914,全收益指数,HKD,published_only,absolute,rank,2219,2017-11-30,2026-11-26,3.238,-34.104,71.64,7,6
+930914,H20914,全收益指数,HKD,published_only,absolute,rsi,2219,2017-11-30,2026-11-26,7.554,-34.104,71.87,7,6
+930914,H20914,全收益指数,HKD,published_only,absolute,trend_cold,2219,2017-11-30,2026-11-26,0.0,0.0,0.0,0,0
+930914,H20914,全收益指数,HKD,published_only,absolute,monthly,2219,2017-11-30,2026-11-26,-0.498,-54.669,66.32,14,13
+930914,H20914,全收益指数,HKD,published_only,absolute,hold,2219,2017-11-30,2026-11-26,7.822,-39.297,100.0,1,0
+930914,H20914,全收益指数,HKD,published_only,relative,current,1469,2020-12-14,2026-11-26,3.034,-34.104,41.01,3,2
+930914,H20914,全收益指数,HKD,published_only,relative,ultra,1469,2020-12-14,2026-11-26,2.456,-31.138,16.76,1,1
+930914,H20914,全收益指数,HKD,published_only,relative,no_fast,1469,2020-12-14,2026-11-26,3.848,-34.104,40.87,3,2
+930914,H20914,全收益指数,HKD,published_only,relative,rank,1469,2020-12-14,2026-11-26,2.241,-34.104,57.77,4,3
+930914,H20914,全收益指数,HKD,published_only,relative,rsi,1469,2020-12-14,2026-11-26,11.046,-28.534,57.97,4,3
+930914,H20914,全收益指数,HKD,published_only,relative,trend_cold,1469,2020-12-14,2026-11-26,0.0,0.0,0.0,0,0
+930914,H20914,全收益指数,HKD,published_only,relative,monthly,1469,2020-12-14,2026-11-26,5.412,-31.339,77.38,8,7
+930914,H20914,全收益指数,HKD,published_only,relative,hold,1469,2020-12-14,2026-11-26,12.493,-34.758,100.0,1,0
+930914,H20914,全收益指数,HKD,published_only,relative,cold_pct,1469,2020-12-14,2026-11-26,5.261,-30.778,59.06,4,3
+930914,H20914,全收益指数,HKD,published_only,relative,ultra_pct,1469,2020-12-14,2026-11-26,0.712,-34.104,41.21,3,2
+980092,480092,全收益指数,CNY,published_only,absolute,current,301,2025-08-28,2026-11-26,1.215,-6.993,35.0,1,0
+980092,480092,全收益指数,CNY,published_only,absolute,ultra,301,2025-08-28,2026-11-26,0.0,0.0,0.0,0,0
+980092,480092,全收益指数,CNY,published_only,absolute,no_fast,301,2025-08-28,2026-11-26,1.215,-6.993,35.0,1,0
+980092,480092,全收益指数,CNY,published_only,absolute,rank,301,2025-08-28,2026-11-26,1.215,-6.993,35.0,1,0
+980092,480092,全收益指数,CNY,published_only,absolute,rsi,301,2025-08-28,2026-11-26,-7.873,-14.175,42.33,1,0
+980092,480092,全收益指数,CNY,published_only,absolute,trend_cold,301,2025-08-28,2026-11-26,0.0,0.0,0.0,0,0
+980092,480092,全收益指数,CNY,published_only,absolute,monthly,301,2025-08-28,2026-11-26,7.188,-13.622,59.67,1,1
+980092,480092,全收益指数,CNY,published_only,absolute,hold,301,2025-08-28,2026-11-26,-0.426,-24.442,100.0,1,0
+980092,480092,全收益指数,CNY,published_only,relative,current,0,,,,,,,
+980092,480092,全收益指数,CNY,published_only,relative,ultra,0,,,,,,,
+980092,480092,全收益指数,CNY,published_only,relative,no_fast,0,,,,,,,
+980092,480092,全收益指数,CNY,published_only,relative,rank,0,,,,,,,
+980092,480092,全收益指数,CNY,published_only,relative,rsi,0,,,,,,,
+980092,480092,全收益指数,CNY,published_only,relative,trend_cold,0,,,,,,,
+980092,480092,全收益指数,CNY,published_only,relative,monthly,0,,,,,,,
+980092,480092,全收益指数,CNY,published_only,relative,hold,0,,,,,,,
+980092,480092,全收益指数,CNY,published_only,relative,cold_pct,0,,,,,,,
+980092,480092,全收益指数,CNY,published_only,relative,ultra_pct,0,,,,,,,
+HSHYLV,HSHYLV TRI,全收益指数,HKD,published_only,absolute,current,979,2022-12-01,2026-11-27,8.041,-19.726,36.5,2,1
+HSHYLV,HSHYLV TRI,全收益指数,HKD,published_only,absolute,ultra,979,2022-12-01,2026-11-27,1.249,-6.077,10.94,1,0
+HSHYLV,HSHYLV TRI,全收益指数,HKD,published_only,absolute,no_fast,979,2022-12-01,2026-11-27,8.041,-19.726,36.5,2,1
+HSHYLV,HSHYLV TRI,全收益指数,HKD,published_only,absolute,rank,979,2022-12-01,2026-11-27,10.308,-20.034,61.45,3,2
+HSHYLV,HSHYLV TRI,全收益指数,HKD,published_only,absolute,rsi,979,2022-12-01,2026-11-27,14.816,-16.825,63.19,3,2
+HSHYLV,HSHYLV TRI,全收益指数,HKD,published_only,absolute,trend_cold,979,2022-12-01,2026-11-27,0.0,0.0,0.0,0,0
+HSHYLV,HSHYLV TRI,全收益指数,HKD,published_only,absolute,monthly,979,2022-12-01,2026-11-27,11.239,-19.028,77.2,3,3
+HSHYLV,HSHYLV TRI,全收益指数,HKD,published_only,absolute,hold,979,2022-12-01,2026-11-27,16.815,-19.028,100.0,1,0
+HSHYLV,HSHYLV TRI,全收益指数,HKD,published_only,relative,current,229,2025-12-23,2026-11-27,0.988,-7.633,48.68,1,0
+HSHYLV,HSHYLV TRI,全收益指数,HKD,published_only,relative,ultra,229,2025-12-23,2026-11-27,5.481,-6.077,46.93,1,0
+HSHYLV,HSHYLV TRI,全收益指数,HKD,published_only,relative,no_fast,229,2025-12-23,2026-11-27,0.988,-7.633,48.68,1,0
+HSHYLV,HSHYLV TRI,全收益指数,HKD,published_only,relative,rank,229,2025-12-23,2026-11-27,0.988,-7.633,48.68,1,0
+HSHYLV,HSHYLV TRI,全收益指数,HKD,published_only,relative,rsi,229,2025-12-23,2026-11-27,-5.776,-14.774,55.26,1,0
+HSHYLV,HSHYLV TRI,全收益指数,HKD,published_only,relative,trend_cold,229,2025-12-23,2026-11-27,0.0,0.0,0.0,0,0
+HSHYLV,HSHYLV TRI,全收益指数,HKD,published_only,relative,monthly,229,2025-12-23,2026-11-27,-11.816,-19.028,54.39,1,1
+HSHYLV,HSHYLV TRI,全收益指数,HKD,published_only,relative,hold,229,2025-12-23,2026-11-27,-3.944,-19.028,100.0,1,0
+HSHYLV,HSHYLV TRI,全收益指数,HKD,published_only,relative,cold_pct,229,2025-12-23,2026-11-27,-3.625,-19.028,97.81,1,0
+HSHYLV,HSHYLV TRI,全收益指数,HKD,published_only,relative,ultra_pct,229,2025-12-23,2026-11-27,-4.664,-14.774,55.7,1,0
+SPCLLHCP,SPCLLHCP,价格指数,CNY,published_only,absolute,current,1388,2021-03-08,2026-11-26,9.87,-17.88,60.27,4,3
+SPCLLHCP,SPCLLHCP,价格指数,CNY,published_only,absolute,ultra,1388,2021-03-08,2026-11-26,0.0,0.0,0.0,0,0
+SPCLLHCP,SPCLLHCP,价格指数,CNY,published_only,absolute,no_fast,1388,2021-03-08,2026-11-26,8.892,-17.88,60.27,4,3
+SPCLLHCP,SPCLLHCP,价格指数,CNY,published_only,absolute,rank,1388,2021-03-08,2026-11-26,6.888,-13.352,69.79,4,4
+SPCLLHCP,SPCLLHCP,价格指数,CNY,published_only,absolute,rsi,1388,2021-03-08,2026-11-26,5.453,-16.782,69.86,4,4
+SPCLLHCP,SPCLLHCP,价格指数,CNY,published_only,absolute,trend_cold,1388,2021-03-08,2026-11-26,0.0,0.0,0.0,0,0
+SPCLLHCP,SPCLLHCP,价格指数,CNY,published_only,absolute,monthly,1388,2021-03-08,2026-11-26,-3.079,-25.014,68.93,10,9
+SPCLLHCP,SPCLLHCP,价格指数,CNY,published_only,absolute,hold,1388,2021-03-08,2026-11-26,6.23,-18.315,100.0,1,0
+SPCLLHCP,SPCLLHCP,价格指数,CNY,published_only,relative,current,638,2024-04-11,2026-11-26,10.193,-10.129,55.1,2,1
+SPCLLHCP,SPCLLHCP,价格指数,CNY,published_only,relative,ultra,638,2024-04-11,2026-11-26,0.0,0.0,0.0,0,0
+SPCLLHCP,SPCLLHCP,价格指数,CNY,published_only,relative,no_fast,638,2024-04-11,2026-11-26,10.708,-10.422,55.1,2,1
+SPCLLHCP,SPCLLHCP,价格指数,CNY,published_only,relative,rank,638,2024-04-11,2026-11-26,0.219,-11.5,37.99,1,1
+SPCLLHCP,SPCLLHCP,价格指数,CNY,published_only,relative,rsi,638,2024-04-11,2026-11-26,6.13,-11.5,75.98,2,2
+SPCLLHCP,SPCLLHCP,价格指数,CNY,published_only,relative,trend_cold,638,2024-04-11,2026-11-26,0.0,0.0,0.0,0,0
+SPCLLHCP,SPCLLHCP,价格指数,CNY,published_only,relative,monthly,638,2024-04-11,2026-11-26,-5.8,-22.889,81.63,6,5
+SPCLLHCP,SPCLLHCP,价格指数,CNY,published_only,relative,hold,638,2024-04-11,2026-11-26,6.604,-12.707,100.0,1,0
+SPCLLHCP,SPCLLHCP,价格指数,CNY,published_only,relative,cold_pct,638,2024-04-11,2026-11-26,8.614,-11.518,83.99,3,2
+SPCLLHCP,SPCLLHCP,价格指数,CNY,published_only,relative,ultra_pct,638,2024-04-11,2026-11-26,6.682,-11.5,75.98,2,2

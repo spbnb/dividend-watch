@@ -126,6 +126,8 @@ h2 { font-size: 1.18rem; line-height: 1.4; font-weight: 720 }
 .detail div { min-width: 0 }.detail dt { color: var(--muted); font-size: .79rem }.detail dd { margin: 1px 0; font-size: .9rem; overflow-wrap: anywhere }
 #empty { padding: 30px; text-align: center; color: var(--muted) }
 footer { padding: 20px 0 32px; gap: 8px; color: var(--muted); font-size: .8rem; flex-wrap: wrap }
+.research-links { display: flex; flex-wrap: wrap; gap: 4px 14px }
+.research-links a:hover { color: var(--green); text-decoration: underline }
 dialog { border: 1px solid #cad7ce; border-radius: 15px; padding: 23px; width: min(490px, 92vw); color: var(--ink); max-height: 84vh; overflow: auto }
 dialog::backdrop { background: #102e2666 }.dialog-heading { margin-bottom: 14px }
 .rule-list { margin: 0 }.rule-list dt { font-weight: 700; margin: 12px 0 3px }.rule-list dd { margin: 0; color: #4e6156; font-size: .91rem }

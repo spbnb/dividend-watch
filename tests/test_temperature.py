@@ -36,12 +36,13 @@ class TemperatureTests(unittest.TestCase):
         self.assertEqual(t.anniversary(date(2024,2,29),1), date(2025,2,28))
 
     def test_two_temperature_tiers_escalate_without_leaking_observe_only_signals(self):
-        item = ITEMS["sh512890"]
+        item = ITEMS["H30269"]
         dates = [(NOW.date() - timedelta(days=i)).isoformat() for i in range(250, 0, -1)]
         bars = list(zip(dates, [1 + i/1000 for i in range(250)]))
         code = item["code"]
         data = fixture(code, quote(1.04, prev_close=bars[-1][1]))
-        data["long:" + code] = bars + [(NOW.date().isoformat(), 10)]  # Unfinished daily bar.
+        data["benchmark:" + code] = {"bars": bars + [(NOW.date().isoformat(), 10)], "currency": "CNY",
+                                      "symbol": "H20269", "kind": "全收益指数"}
         data["history:sh000001"] = [(dates[-1], 10), (NOW.date().isoformat(), 10)]
         def check(level, sent):
             snap = monitor.build([item], data, NOW)

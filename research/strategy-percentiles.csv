@@ -1,0 +1,49 @@
+﻿monitor_code,return_series,kind,currency,period,rule,start,end,signal_days,hit_days,crossings
+H30269,H20269,全收益指数,CNY,rank_ready,current,2013-12-20,2026-11-26,3145,146,33
+H30269,H20269,全收益指数,CNY,rank_ready,ultra,2013-12-20,2026-11-26,3145,2,2
+H30269,H20269,全收益指数,CNY,rank_ready,cold_pct,2013-12-20,2026-11-26,3145,734,78
+H30269,H20269,全收益指数,CNY,rank_ready,ultra_pct,2013-12-20,2026-11-26,3145,340,57
+H30269,H20269,全收益指数,CNY,common_rank,current,2025-12-23,2026-11-26,224,22,5
+H30269,H20269,全收益指数,CNY,common_rank,ultra,2025-12-23,2026-11-26,224,0,0
+H30269,H20269,全收益指数,CNY,common_rank,cold_pct,2025-12-23,2026-11-26,224,131,14
+H30269,H20269,全收益指数,CNY,common_rank,ultra_pct,2025-12-23,2026-11-26,224,83,10
+000922,H00922,全收益指数,CNY,rank_ready,current,2009-02-20,2026-11-26,4319,355,70
+000922,H00922,全收益指数,CNY,rank_ready,ultra,2009-02-20,2026-11-26,4319,3,3
+000922,H00922,全收益指数,CNY,rank_ready,cold_pct,2009-02-20,2026-11-26,4319,967,129
+000922,H00922,全收益指数,CNY,rank_ready,ultra_pct,2009-02-20,2026-11-26,4319,396,95
+000922,H00922,全收益指数,CNY,common_rank,current,2025-12-23,2026-11-26,224,13,3
+000922,H00922,全收益指数,CNY,common_rank,ultra,2025-12-23,2026-11-26,224,0,0
+000922,H00922,全收益指数,CNY,common_rank,cold_pct,2025-12-23,2026-11-26,224,72,16
+000922,H00922,全收益指数,CNY,common_rank,ultra_pct,2025-12-23,2026-11-26,224,32,7
+930914,H20914,全收益指数,HKD,rank_ready,current,2018-10-24,2026-11-26,1999,141,34
+930914,H20914,全收益指数,HKD,rank_ready,ultra,2018-10-24,2026-11-26,1999,8,4
+930914,H20914,全收益指数,HKD,rank_ready,cold_pct,2018-10-24,2026-11-26,1999,490,69
+930914,H20914,全收益指数,HKD,rank_ready,ultra_pct,2018-10-24,2026-11-26,1999,187,45
+930914,H20914,全收益指数,HKD,common_rank,current,2025-12-23,2026-11-26,228,6,1
+930914,H20914,全收益指数,HKD,common_rank,ultra,2025-12-23,2026-11-26,228,0,0
+930914,H20914,全收益指数,HKD,common_rank,cold_pct,2025-12-23,2026-11-26,228,68,17
+930914,H20914,全收益指数,HKD,common_rank,ultra_pct,2025-12-23,2026-11-26,228,28,5
+980092,480092,全收益指数,CNY,rank_ready,current,2024-08-16,2026-11-26,551,20,6
+980092,480092,全收益指数,CNY,rank_ready,ultra,2024-08-16,2026-11-26,551,0,0
+980092,480092,全收益指数,CNY,rank_ready,cold_pct,2024-08-16,2026-11-26,551,236,22
+980092,480092,全收益指数,CNY,rank_ready,ultra_pct,2024-08-16,2026-11-26,551,136,12
+980092,480092,全收益指数,CNY,common_rank,current,2025-12-23,2026-11-26,224,17,5
+980092,480092,全收益指数,CNY,common_rank,ultra,2025-12-23,2026-11-26,224,0,0
+980092,480092,全收益指数,CNY,common_rank,cold_pct,2025-12-23,2026-11-26,224,141,9
+980092,480092,全收益指数,CNY,common_rank,ultra_pct,2025-12-23,2026-11-26,224,90,9
+HSHYLV,HSHYLV TRI,全收益指数,HKD,rank_ready,current,2025-12-23,2026-11-27,229,26,3
+HSHYLV,HSHYLV TRI,全收益指数,HKD,rank_ready,ultra,2025-12-23,2026-11-27,229,5,1
+HSHYLV,HSHYLV TRI,全收益指数,HKD,rank_ready,cold_pct,2025-12-23,2026-11-27,229,132,10
+HSHYLV,HSHYLV TRI,全收益指数,HKD,rank_ready,ultra_pct,2025-12-23,2026-11-27,229,61,10
+HSHYLV,HSHYLV TRI,全收益指数,HKD,common_rank,current,2025-12-23,2026-11-26,228,25,3
+HSHYLV,HSHYLV TRI,全收益指数,HKD,common_rank,ultra,2025-12-23,2026-11-26,228,5,1
+HSHYLV,HSHYLV TRI,全收益指数,HKD,common_rank,cold_pct,2025-12-23,2026-11-26,228,131,10
+HSHYLV,HSHYLV TRI,全收益指数,HKD,common_rank,ultra_pct,2025-12-23,2026-11-26,228,60,10
+SPCLLHCP,SPCLLHCP,价格指数,CNY,rank_ready,current,2024-04-11,2026-11-26,638,21,6
+SPCLLHCP,SPCLLHCP,价格指数,CNY,rank_ready,ultra,2024-04-11,2026-11-26,638,0,0
+SPCLLHCP,SPCLLHCP,价格指数,CNY,rank_ready,cold_pct,2024-04-11,2026-11-26,638,151,21
+SPCLLHCP,SPCLLHCP,价格指数,CNY,rank_ready,ultra_pct,2024-04-11,2026-11-26,638,76,16
+SPCLLHCP,SPCLLHCP,价格指数,CNY,common_rank,current,2025-12-23,2026-11-26,224,17,4
+SPCLLHCP,SPCLLHCP,价格指数,CNY,common_rank,ultra,2025-12-23,2026-11-26,224,0,0
+SPCLLHCP,SPCLLHCP,价格指数,CNY,common_rank,cold_pct,2025-12-23,2026-11-26,224,107,16
+SPCLLHCP,SPCLLHCP,价格指数,CNY,common_rank,ultra_pct,2025-12-23,2026-11-26,224,60,12

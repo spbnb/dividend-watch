@@ -9,12 +9,11 @@ const palette = ["#4389c7", "#4ca8aa", "#e1b84f", "#e28148", "#ca544b"];
 const bandIndex = v => number(v) ? thresholds.filter(t => v > t).length : -1;
 const currentBand = bandIndex(model.temperature);
 const isFund = model.type === "场外基金";
-const etf = model.type === "ETF";
-const kind = model.reference_kind || "ETF复权价";
-const indexed = etf && kind.includes("指数");
-const priceName = isFund ? "基金收益指数" : etf ? "ETF 复权价" : "复权价";
-const currency = model.currency === "HKD" ? "港元" : "元";
-const priceDigits = isFund ? 4 : model.type === "ETF" ? 3 : 2;
+const indexed = model.type === "指数";
+const kind = model.reference_kind || "";
+const priceName = isFund ? "基金收益指数" : "复权价";
+const currency = indexed ? "点" : model.currency === "HKD" ? "港元" : "元";
+const priceDigits = isFund ? 4 : 2;
 const asPrice = v => number(v) ? v.toFixed(priceDigits) : "—";
 const asPercent = (v, digits = 2) => number(v) ? v.toFixed(digits) + "%" : "—";
 const history = model.series || [];
@@ -43,31 +42,27 @@ function stamp(at) {
 }
 
 function describeReference() {
-  if (!etf) return;
-  const benchmark = [model.benchmark_name, model.benchmark_code].filter(Boolean).join(" · ");
+  if (!indexed) return;
   const origin = [kind, model.reference_symbol, model.reference_currency].filter(Boolean).join(" · ");
   const set = (id, text) => {
     const p = byId(id);
     p.textContent = text;
     p.hidden = !text;
   };
-  byId("price-label").textContent = "ETF 场内交易价";
-  byId("meter-title").textContent = indexed && !model.reading_fallback ? "跟踪指数综合温度" : "ETF 综合温度";
-  const defaultBasis = indexed ? [model.benchmark_name, origin].filter(Boolean).join(" · ") :
-    (benchmark ? "跟踪 " + benchmark + "，本次温度采用 ETF 复权价。" : "本次温度采用 ETF 复权价。");
-  set("meter-basis", model.reading_basis || defaultBasis);
-  if (indexed) {
-    byId("history-title").textContent = "指数温度走势";
-    byId("temp-axis").textContent = "综合温度（0–100°）";
-    byId("price-axis").hidden = true;
-  }
-  set("history-reference", indexed ? [model.benchmark_name, origin].filter(Boolean).join(" · ") : "ETF 复权历史");
+  byId("price-label").textContent = "价格指数点位" + (model.currency ? "（" + model.currency + "）" : "");
+  if (!number(model.price)) byId("quote-time").textContent = "原始点位暂缺";
+  byId("meter-title").textContent = "指数综合温度";
+  set("meter-basis", model.reading_basis || origin);
+  byId("history-title").textContent = "指数温度走势";
+  byId("temp-axis").textContent = "综合温度（0–100°）";
+  byId("price-axis").hidden = true;
+  set("history-reference", origin);
   let historyNote = model.reference_note || "";
   const launch = model.reference_launch;
-  if (indexed && launch) {
+  if (launch) {
     if (!historyNote.includes(launch)) historyNote += (historyNote ? " " : "") + "指数于 " + launch + " 正式发布。";
     if (series.some(row => row[0] < launch) && !historyNote.includes("回溯"))
-      historyNote += " 发布前的温度来自回溯点位，符合持有期限的观察日纳入历史统计。";
+      historyNote += " 发布前的走势为历史回溯，可用于指标预热。";
   }
   set("history-basis", historyNote);
   const returnBasis = {
@@ -75,16 +70,16 @@ function describeReference() {
     "全收益指数": "按全收益指数点位计算，收益含股息再投资。",
     "净收益指数": "按净收益指数点位计算，收益含扣税后的股息再投资。"
   };
-  set("return-basis", indexed ? [model.benchmark_name, returnBasis[kind] || "历史收益按" + kind + "计算。"].filter(Boolean).join(" · ") : "历史收益按 ETF 复权价格计算。");
+  set("return-basis", series.length && kind ? (returnBasis[kind] || "历史收益按" + kind + "计算。") : "历史指数收益资料待更新。");
   const source = byId("reference-source");
-  const description = ["跟踪指数", benchmark, model.reference_provider].filter(Boolean).join(" · ");
+  const description = [model.name, model.code, model.reference_provider].filter(Boolean).join(" · ");
   let url;
   try { url = new URL(model.reference_url); } catch { /* The snapshot may omit a source link. */ }
   if (url && ["https:", "http:"].includes(url.protocol)) {
     const a = el("a", "指数资料");
     a.href = url.href;
     source.append(description + " · ", a);
-  } else if (benchmark) source.textContent = description;
+  } else source.textContent = description;
   source.hidden = !source.textContent;
 }
 
@@ -288,7 +283,9 @@ function bar(value, min, max, isWin) {
 function statistics() {
   const stats = model.stats || [];
   const counts = bands.map(() => 0);
+  const firstEligible = model.stats_start || (indexed ? model.reference_launch : "") || "";
   for (const row of history) {
+    if (row[0] < firstEligible) continue;
     const band = bandIndex(row[2]);
     if (band >= 0) counts[band]++;
   }
@@ -310,7 +307,7 @@ function statistics() {
   if (currentBand < 0) noteNode.append(el("strong","当前温区待定，暂无对应区间统计。"));
   else if (!stats[currentBand]?.some(s => s.n > 0)) noteNode.append(el("strong",
     counts[currentBand] ? "本温区已有 " + counts[currentBand] + " 个历史观察日，尚无满 1 年的持有样本。" :
-    observed ? "可用历史收盘日从未触发该温区。" : "可用历史温度不足。"));
+    observed ? "统计期内的收盘日从未触发该温区。" : "统计期内的可用温度不足。"));
   noteNode.append(document.createTextNode(note));
   const returns = stats.map(row=>row?.[0]?.mean).filter(number);
   const min = Math.min(0,...returns), max = Math.max(0,...returns);

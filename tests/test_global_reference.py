@@ -1,6 +1,6 @@
 import json
 import unittest
-from datetime import date
+from datetime import date, datetime
 from unittest.mock import patch
 
 import global_reference as reference
@@ -62,3 +62,47 @@ class GlobalReferenceTests(unittest.TestCase):
         self.assertEqual((published["yield_pct"], published["yield_at"]), (4.4, "2026-11-18"))
         self.assertEqual(published["yield_history"], [])
         self.assertIn("单次披露", published["yield_method"])
+
+    def test_ft_price_index_identity_date_and_previous_close(self):
+        page = ('''<div class="mod-tearsheet-overview__header__symbol"><span>SPCLLHCP:IOM</span></div>'''
+                "<div>Price (CNY) <span>3,969.05</span> Today's Change -39.19 / -0.98%</div>"
+                '<div class="mod-disclaimer">Data delayed at least 10 minutes, as of Nov 27 2026 07:52 GMT.</div>')
+        cutoff = date(2026, 11, 27)
+        with patch.object(reference, "_fetch", return_value=page.encode()):
+            quote = reference.sp_price_quote(cutoff)
+            self.assertEqual((quote["price"], quote["pct"], quote["prev_close"]), (3969.05, -0.98, 4008.24))
+            self.assertEqual(quote["at"], "2026-11-27T15:52:00+08:00")
+            self.assertIsNone(reference._ft_sp_quote(self.today))
+        for wrong in [page.replace("SPCLLHCP", "SPCLLHCT"), page.replace("CNY", "USD")]:
+            with patch.object(reference, "_fetch", return_value=wrong.encode()):
+                self.assertIsNone(reference._ft_sp_quote(cutoff))
+        with patch.object(reference, "_fetch", return_value=page.replace("-39.19", "-14.78").encode()):
+            self.assertIsNone(reference._ft_sp_quote(cutoff)["prev_close"])
+
+    def test_yahoo_fallback_keeps_real_level_only(self):
+        cutoff = date(2026, 11, 27)
+        stamp = int(datetime(2026, 11, 27, 15, 52, 47, tzinfo=reference.CST).timestamp())
+        meta = {"symbol": "^SPCLLHCP", "currency": "CNY", "instrumentType": "INDEX", "exchangeName": "SNP",
+                "regularMarketPrice": 3969.05, "regularMarketTime": stamp, "chartPreviousClose": 3983.83,
+                "regularMarketChangePercent": -0.371}
+        def payload():
+            return json.dumps({"chart": {"result": [{"meta": meta}]}}).encode()
+        with patch.object(reference, "_ft_sp_quote", side_effect=OSError), \
+                patch.object(reference, "_fetch", side_effect=lambda *_: payload()):
+            result = reference.sp_price_quote(cutoff)
+            self.assertEqual((result["price"], result["at"]), (3969.05, "2026-11-27T15:52:47+08:00"))
+            self.assertEqual((result["prev_close"], result["pct"]), (None, None))
+            self.assertIsNone(reference.sp_price_quote(self.today))
+            meta["symbol"] = "^SPCLLHCT"
+            self.assertIsNone(reference.sp_price_quote(cutoff))
+
+    def test_price_and_total_return_bars_have_separate_hsi_identities(self):
+        payload = {"code": "0", "data": [
+            {"indexCode": "12033.00", "indexName": "Hang Seng SCHK High Dividend Low Volatility Index Total Return Index",
+             "valueHistory": [{"date": "2026-11-26", "close": 10259.94}]},
+            {"indexCode": "02033.00", "indexName": "Hang Seng SCHK High Dividend Low Volatility Index",
+             "valueHistory": [{"date": "2026-11-26", "close": 4114.59}]}]}
+        with patch.object(reference, "_fetch", return_value=json.dumps(payload).encode()), \
+                patch.object(reference, "_hang_seng_yield", return_value=None):
+            self.assertEqual(reference.hang_seng_price_bars(self.today), [("2026-11-26", 4114.59)])
+            self.assertEqual(reference.get_reference("HSHYLV", self.today)["bars"], [("2026-11-26", 10259.94)])

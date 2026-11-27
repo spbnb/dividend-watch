@@ -16,6 +16,15 @@ import notify
 
 NOW = datetime(2026, 11, 24, 14, 25, tzinfo=market.CST)
 ITEMS = {i["code"]: i for i in json.loads((monitor.ROOT / "watchlist.json").read_text(encoding="utf-8"))}
+WATCHLIST = tuple(ITEMS.values())
+# Old custom watchlists still exercise price and premium rules independently of the live index list.
+for code, underlying, first, second in (("sh513530","930914",1.45,1.38), ("sz159545","HSHYLV",1.22,1.15),
+                                        ("sz159201","980092",1.097,1.082), ("sh512890","H30269",1.20,1.12)):
+    ITEMS[code] = {**ITEMS[underlying], "code": code, "type": "ETF", "first": first, "second": second}
+    if code in {"sh513530", "sz159545"}:
+        ITEMS[code]["premium_max"] = 1.5
+    if code == "sz159201":
+        ITEMS[code]["show_premium"] = True
 # Historical H-share example used to exercise HK market hours and notification formatting.
 HK_EXAMPLE = dict(ITEMS["sh600938"], code="hk00883", name="中国海油 H", type="港股", first=20.00, second=18.50)
 
@@ -32,14 +41,16 @@ def fixture(code, q=None, **extra):
 
 
 class RuleTests(unittest.TestCase):
-    def test_watchlist_includes_cash_flow_etf_and_only_the_a_share_of_cnooc(self):
+    def test_watchlist_contains_six_indices_five_stocks_and_one_off_exchange_fund(self):
         data = fixture("sh600938", quote(27))
         data["quotes"]["hk00883"] = quote(20)
-        snap = monitor.build(list(ITEMS.values()), data, NOW)
+        snap = monitor.build(WATCHLIST, data, NOW)
         self.assertEqual((12, 12), (snap["groups"], len(snap["rows"])))
         codes = {r["code"] for r in snap["rows"]}
         self.assertIn("sh600938", codes)
-        self.assertIn("sz159201", codes)
+        self.assertEqual({r["code"] for r in snap["rows"] if r["type"] == "指数"},
+                         {"H30269", "000922", "980092", "HSHYLV", "930914", "SPCLLHCP"})
+        self.assertFalse(any(r["type"] == "ETF" for r in snap["rows"]))
         self.assertNotIn("hk00883", codes)
         for row in snap["rows"]:
             self.assertEqual((row["rsi_max"], row["rsi_second_max"], row["rsi7_max"], row["rsi7_second_max"]),

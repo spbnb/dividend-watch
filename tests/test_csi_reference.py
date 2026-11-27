@@ -10,6 +10,17 @@ TODAY = date(2026, 11, 26)
 
 
 class IndexReferenceTests(unittest.TestCase):
+    def test_direct_codes_read_named_total_return_history_and_price_index_yields(self):
+        with patch.object(ref, "csi_bars", return_value=[]) as csi, \
+                patch.object(ref, "cni_bars", return_value=[]) as cni, \
+                patch.object(ref, "csi_yields", return_value=[]) as yields:
+            expected = {"H30269": "H20269", "000922": "H00922", "930914": "H20914", "980092": "480092"}
+            for price, total in expected.items():
+                self.assertEqual(ref.get_reference(price, TODAY)["symbol"], total)
+            self.assertEqual([call.args[0] for call in csi.call_args_list], ["H20269", "H00922", "H20914"])
+            self.assertEqual(cni.call_args.args[0], "480092")
+            self.assertEqual([call.args[0] for call in yields.call_args_list], ["H30269", "000922", "930914"])
+
     def test_csi_uses_requested_symbol_and_only_valid_completed_dates(self):
         def row(day, close, symbol="H20269"):
             return {"indexCode": symbol, "tradeDate": day, "close": close}
@@ -22,7 +33,17 @@ class IndexReferenceTests(unittest.TestCase):
         with patch.object(ref, "_download", return_value=json.dumps(payload).encode()) as get:
             bars = ref.csi_bars("H20269", "2005-12-30", TODAY)
         self.assertEqual(bars, [("2005-12-30", 1000), ("2026-11-25", 25201.56), ("2026-11-26", 25389.77)])
-        self.assertIn("indexCode=H20269&startDate=20051230", get.call_args.args[0])
+        self.assertIn("indexCode=H20269&startDate=20051229", get.call_args.args[0])
+
+    def test_query_on_holiday_does_not_import_next_sessions_close(self):
+        def response(url, _referer):
+            rows = [("20191231", 6902.53), ("20200102", 6999.68)]
+            if "startDate=20200101" in url:
+                rows.insert(0, ("20200101", 6999.68))
+            return json.dumps({"success": True, "data": [
+                {"indexCode": "H00922", "tradeDate": day, "close": level} for day, level in rows]}).encode()
+        with patch.object(ref, "_download", side_effect=response):
+            self.assertEqual(ref.csi_bars("H00922", "2020-01-01", date(2020, 1, 2)), [("2020-01-02", 6999.68)])
 
     def test_cni_uses_named_close_and_validates_index_identity(self):
         content = {"code": 200, "data": {"indexCode": "480092", "item": ["close", "timestamp", "open"],

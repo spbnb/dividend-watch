@@ -1,4 +1,4 @@
-"""Compare dividend valuation signals with the original ETF thermometer. Offline cache is optional."""
+"""Compare dividend valuation and temperature signals using published index series."""
 
 import argparse
 import calendar
@@ -14,15 +14,15 @@ from urllib.parse import quote, urlencode
 from urllib.request import Request, urlopen
 
 from csi_reference import SERIES, csi_bars
-from market import adjusted_history
 from temperature import anniversary, historical_series, rsi_series
 
 
 CATALOGUE = "https://www.csindex.com.cn/csindex-home/research/queryResearchByVo"
 MOF = "https://yield.chinabond.com.cn/cbweb-czb-web/czb/historyQuery"
-FUNDS = {"sh515180": "红利 ETF 易方达", "sh512890": "红利低波 ETF"}
+INDICES = {"000922": "中证红利指数", "H30269": "中证红利低波动指数"}
 RULES = ("无条件", "原温度 ≤25°", "利差前 25%", "利差前 25% 且 RSI(14) ≤35")
 ONE_WAY_COST = 0.001
+SPLIT = "2023-01-01"
 PERCENT = r"[-+]?\d+(?:\.\d+)?\s*[%％]"
 DIVIDEND_ROW = re.compile(r"中证红利\s+(?:[\d,.]+\s+){4}(?:" + PERCENT + r"\s*){7}(" + PERCENT + ")")
 
@@ -156,15 +156,15 @@ def monthly_scores(entries, bonds, sessions):
     return scores
 
 
-def evaluate(etf, score):
-    days = [d for d, _ in etf]
-    price = dict(etf)
-    temp = {d: t for d, _, t in historical_series(etf)}
-    rsi = dict(zip(days, rsi_series([p for _, p in etf], 14)))
+def evaluate(bars, score, start, end):
+    days = [d for d, _ in bars]
+    price = dict(bars)
+    temp = {d: t for d, _, t in historical_series(bars)}
+    rsi = dict(zip(days, rsi_series([p for _, p in bars], 14)))
     candidates = [[] for _ in RULES]
     universe = []
     for i, d in enumerate(days[:-1]):
-        if d not in score or temp[d] is None or rsi[d] is None:
+        if d < start or d not in score or temp[d] is None or rsi[d] is None:
             continue
         entry = days[i + 1]
         anniversary_day = anniversary(date.fromisoformat(entry), 1).isoformat()
@@ -172,6 +172,8 @@ def evaluate(etf, score):
         if end_i >= len(days):
             continue
         exit_day = days[end_i]
+        if exit_day >= end:
+            continue
         ret = 100 * (price[exit_day] * (1 - ONE_WAY_COST) / (price[entry] * (1 + ONE_WAY_COST)) - 1)
         universe.append(d)
         value = score[d] >= 75
@@ -190,17 +192,19 @@ def evaluate(etf, score):
     return universe, out
 
 
-def table(name, etf, scores):
-    days, out = evaluate(etf, scores)
-    if not days:
-        return [f"### {name}", "", "缺少具有完整一年 ETF 收益的可比观察。", ""]
-    lines = [f"### {name}", "", f"可到期信号日 {days[0]} 至 {days[-1]}，共 {len(days)} 个。",
-             "", "| 规则 | 符合天数 | 不重叠笔数 | 平均收益 | 胜率 | 各笔收益（按入场先后） |",
-             "| --- | ---: | ---: | ---: | ---: | --- |"]
-    for rule, matches, vals in out:
-        perf = (f"{statistics.mean(vals):+.2f}% | {100*sum(v>0 for v in vals)/len(vals):.1f}% | "
-                + "、".join(f"{v:+.2f}%" for v in vals)) if vals else "— | — | —"
-        lines.append(f"| {rule} | {matches} | {len(vals)} | {perf} |")
+def table(name, history, scores):
+    lines = [f"### {name}", "", "| 期间 | 规则 | 符合天数 | 不重叠笔数 | 平均净收益 | 胜率 |",
+             "| --- | --- | ---: | ---: | ---: | ---: |"]
+    coverage = []
+    for period, start, end in (("全期", "", "9999"), ("前期", "", SPLIT), ("后期", SPLIT, "9999")):
+        days, results = evaluate(history, scores, start, end)
+        if days:
+            coverage.append(f"{period} {days[0]} 至 {days[-1]}（{len(days)} 个可评估信号日）")
+        for rule, matches, returns in results:
+            perf = (f"{statistics.mean(returns):+.2f}% | {100 * sum(v > 0 for v in returns)/len(returns):.1f}%"
+                    if returns else "— | —")
+            lines.append(f"| {period} | {rule} | {matches} | {len(returns)} | {perf} |")
+    lines.extend(["", "。".join(coverage) + "。"] if coverage else ["", "缺少持有满一年的指数观察。"])
     return lines + [""]
 
 
@@ -221,36 +225,40 @@ def run(cutoff, cache):
             start, end = date(y,m,1), min(finish,cutoff)
             if start <= end:
                 bonds.update(cached(cache, f"bond-{start}-{end}", lambda: bond_half(start,end)))
-    lines = ["# 红利估值信号的 ETF 历史检验", "", f"数据截止 {cutoff}。以下结果比较估值条件和原温度提醒触发后的 ETF 成交收益。", "",
+    lines = ["# 两条红利指数的估值信号回测", "", f"数据截止 {cutoff}。实验使用中证红利、中证红利低波动的人民币价格指数和全收益指数。"
+             "温度、RSI 和持有期收益均来自各自的全收益指数。", "",
              f"**真实股息率。** 中证归档的 {len(parsed)} 份月报中，可核验 {len(set(r['month_end'] for r in entries))} 个不同月末，"
              f"从 {min(r['month_end'] for r in entries)} 至 {max(r['month_end'] for r in entries)}。"
              "取中证红利指数在月报红利表中的末列「指数股息率」，减去同月末最近的财政部 10 年期国债收益率。"
              "月报发布日期过后才使用。每次观察最多沿用至该月末后 62 天。只用当时已发布的此前 3 年数据计算百分位，至少需要 30 个月。",
-             "", "**分红贡献代理。** 对两只 ETF 的跟踪指数，用过去 365 天的全收益指数涨幅因子除以同币种价格指数涨幅因子再减一。"
+             "", "**分红贡献代理。** 对每条指数，用过去 365 天的全收益指数涨幅因子除以同币种价格指数涨幅因子再减一。"
              "这衡量期间已实现的指数分红再投资贡献，和月末公布的指数股息率定义不同。"
              f"同期取得财政部国债曲线 {len(bonds)} 个日观察。从分红贡献减同日 10 年国债收益率，取此前完整 3 年、至少 600 个配对日的百分位。"
-             "在 ETF 信号日只引用此前已收盘的指数和国债，跨休市间隔最长 14 天。", "",
-             "**成交与对照。** 对每个数据口径，四条规则共享同一组信号日。原温度在 ETF 复权日线上按 50% 价格位置、35% RSI(14)、15% RSI(7) 计算。"
-             "估值利差进入历史前 25%（百分位 ≥75）触发，叠加规则另要求 ETF RSI(14) ≤35。所有规则在信号日后第一个有成交的 ETF 收盘价入场，"
-             "持有满一年后的首个有成交日收盘出场。每条规则从最早合格日开始，下一笔入场须晚于上一笔退出。收益取 ETF 分红复权收盘价，买入和卖出各计成交额的 0.10% 费用。"
-             "结果衡量条件触发后的一年持有收益。主策略实验的组合年化收益另计空仓期间。", ""]
-    for code, name in FUNDS.items():
-        price_code,total_code,_,base,_ = SERIES[code]
-        etf = cached(cache, f"etf-{code}-{cutoff}", lambda: adjusted_history(code,cutoff))
+             "信号日只引用此前已收盘的指数和国债，跨休市间隔最长 14 天。", "",
+             "**信号与持有期。** 对每个指数和每种估值口径，四条规则共享同一组信号日。只用指数正式发布后的日线，剔除发布前回溯值。"
+             "原温度按 50% 的 250 日指数位置、35% 的 RSI(14)、15% 的 RSI(7) 计算。估值利差百分位 ≥75 触发，叠加规则另要求同一指数 RSI(14) ≤35。"
+             "所有规则在信号后的首个指数收盘点位模拟入场，至满一年后的首个指数收盘点位退出。各条规则从最早合格日开始，下一笔须在上一笔退出后入场。"
+             "按指数点位变化模拟收益，每次入场、退出分别扣 0.10% 的假设跟踪成本。实际产品会有额外的费用、滑点和跟踪误差。", "",
+             "**分期。** 前期仅纳入 2022 年末前已退出的观察，后期从 2023 年的首个信号日重新开始。两段各自统计互不重叠的一年期。"
+             "全期按连续时间重新选择入场，笔数可与两段之和不同。表中的平均百分比衡量持有期净收益，空仓时间只在主策略实验的组合年化收益中计入。", ""]
+    for code, name in INDICES.items():
+        price_code, total_code, _, base, launch = SERIES[code]
         def bars(symbol):
-            return cached(cache, f"csi-{symbol}-{cutoff}", lambda: csi_bars(symbol,base,cutoff))
-        proxy = daily_proxy(bars(price_code),bars(total_code),bonds)
-        sessions = [d for d,_ in etf]
-        if code == "sh515180":
-            lines.extend(table(f"{name} {code[2:]} · 中证月报真实股息率", etf, monthly_scores(entries,bonds,sessions)))
-        lines.extend(table(f"{name} {code[2:]} · 分红贡献代理", etf, proxy_scores(proxy,sessions)))
-    lines += ["不重叠笔数是各条规则实际走完的一年持有期数。不同规则的入场日期可能不同，两只 ETF 也可能持有相似股票，合并笔数会夸大有效样本。"
+            history = cached(cache, f"csi-{symbol}-{cutoff}", lambda: csi_bars(symbol,base,cutoff))
+            return [r for r in history if launch <= r[0] <= cutoff.isoformat()]
+        total = bars(total_code)
+        sessions = [d for d, _ in total]
+        proxy = daily_proxy(bars(price_code), total, bonds)
+        title = f"{name}（价格 {price_code} / 全收益 {total_code}）"
+        if code == "000922":
+            lines.extend(table(f"{title} · 月报真实股息率", total, monthly_scores(entries,bonds,sessions)))
+        lines.extend(table(f"{title} · 分红贡献代理", total, proxy_scores(proxy,sessions)))
+    lines += ["不重叠笔数是各条规则实际走完的一年持有期数。不同规则的入场日期可能不同，两条指数的样本股也可能重叠，合并笔数会夸大有效样本。"
               "胜率和均值随行情区间而变。", "",
               f"来源包括 [中证指数研报目录](https://www.csindex.com.cn/#/research/all)、[第一期可核验月报]({entries[0]['url'].replace(' ', '%20')})、"
               f"[最近一期可核验月报]({entries[-1]['url'].replace(' ', '%20')})、[财政部国债曲线](https://yield.chinabond.com.cn/cbweb-czb-web/czb/showHistory?locale=cn_ZH)、"
               "[中证红利](https://www.csindex.com.cn/#/indices/family/detail?indexCode=000922)、"
-              "[中证红利低波](https://www.csindex.com.cn/#/indices/family/detail?indexCode=H30269)、"
-              "[515180 复权行情](https://finance.yahoo.com/quote/515180.SS/history/)和[512890 复权行情](https://finance.yahoo.com/quote/512890.SS/history/)。",
+              "[中证红利低波](https://www.csindex.com.cn/#/indices/family/detail?indexCode=H30269)。",
               "", f"复现时安装 PyMuPDF，再运行 `python research_value.py --as-of {cutoff}`。"]
     return "\n".join(lines) + "\n"
 

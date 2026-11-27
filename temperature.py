@@ -128,11 +128,11 @@ def anniversary(day, years):
         return date(day.year + years, 2, 28)
 
 
-def holding_stats(series):
+def holding_stats(series, start=None):
     dates = [date.fromisoformat(day) for day, _, _ in series]
     totals = [[dict(n=0, positive=0, total=0.0) for _ in range(3)] for _ in BANDS]
-    for i, (_, _, value) in enumerate(series[:-1]):
-        if value is None:
+    for i, (day, _, value) in enumerate(series[:-1]):
+        if value is None or (start and day < start):
             continue
         group = totals[bisect_left(LIMITS, value)]
         entry = i + 1
@@ -160,9 +160,12 @@ def page_data(row, bars, source):
     note_stats = STATS_NOTE
     if index_history:
         basis = {"价格指数": "价格指数点位变化，不含现金分红", "全收益指数": "全收益指数累计收益，含分红再投资",
-                 "净收益指数": "净收益指数累计收益，按指数规则扣除股息相关税费"}.get(row["reference_kind"], row["reference_kind"])
+                 "净收益指数": "净收益指数累计收益，按指数规则扣除股息相关税费"}.get(row["reference_kind"], "指数累计收益")
         note_stats = STATS_NOTE.replace("复权序列累计收益", basis)
-    stats = holding_stats(series)
+    start = max(filter(None, (row.get("reference_launch"), row.get("reference_method_since"))), default=None) if index_history else None
+    if start:
+        note_stats += f" 仅计 {start} 起的信号，较早点位可用于指标预热。"
+    stats = holding_stats(series, start)
     # Only derived indicators and aggregate outcomes are published for an index.
     if index_history:
         series = [(day, None, value) for day, _, value in series]
@@ -170,6 +173,6 @@ def page_data(row, bars, source):
             **{k: v for k, v in row.items() if k.startswith(("benchmark_", "reference_", "reading_")) and k != "reference_close"},
             "at": at, "band": band(row.get("temperature")), "components": row.get("temperature_components") or {},
             "price": row.get("price"), "price_at": row.get("at"),
-            "bands": BANDS, "thresholds": LIMITS, "series": series, "stats": stats,
+            "bands": BANDS, "thresholds": LIMITS, "series": series, "stats": stats, "stats_start": start,
             "method": METHOD.replace("同一复权日线", "同一组日收盘序列") if row.get("benchmark_code") else METHOD,
             "stats_note": note_stats, "asof_note": note, "source": source}

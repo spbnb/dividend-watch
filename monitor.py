@@ -9,7 +9,7 @@ import tempfile
 from datetime import datetime, time, timedelta
 from pathlib import Path
 
-from market import BENCHMARKS, CST, ETF_BENCHMARKS, collect
+from market import BENCHMARKS, CST, INDEX_BENCHMARKS, collect
 import temperature
 from temperature import wilder_rsi
 
@@ -165,56 +165,49 @@ def fund_quote(item, data, now):
     return max(candidates, key=lambda q: q["at"], default=None), extra
 
 
-def etf_observation(item, data, now, fund_reading):
+def index_observation(item, data, now, quote):
     code = item["code"]
-    name, symbol, quote_id, market = ETF_BENCHMARKS[code]
+    name, symbol, _, market = INDEX_BENCHMARKS[code]
     ref = data.get("benchmark:" + code) or {}
+    currency = "HKD" if market == "HK" else "CNY"
     bars = temperature.closed_bars(ref.get("bars") or [], now, market)
-    use_history = len(bars) > temperature.WINDOW
-    reading = fund_reading
-    default_basis = "ETF复权价 · " + ("盘中暂估" if reading["temperature_live"] else "收盘")
-    fields = {"benchmark_name": name, "benchmark_code": symbol, "reference_is_index": use_history,
-              "reference_kind": ref["kind"] if use_history else "ETF复权价",
-              "reference_symbol": ref["symbol"] if use_history else code,
-              "reference_currency": ref.get("currency") if use_history else "CNY",
-              "reference_provider": ref.get("provider") if use_history else "Yahoo Finance",
-              "reference_url": ref.get("url"), "reference_launch": ref.get("launch"),
-              "reference_note": ref.get("note"), "reference_yield": ref.get("yield_pct"),
-              "reference_yield_at": ref.get("yield_at"), "reference_yield_method": ref.get("yield_method"),
-              "reference_yield_approx": ref.get("yield_approx", False), "reference_yield_url": ref.get("yield_history_source"),
-              "reading_basis": default_basis, "reading_fallback": True}
-    if use_history:
-        # Only a matching currency and index family may provide an estimated intraday move.
-        tick = data["quotes"].get("idx:" + quote_id) if quote_id else None
-        currency = "HKD" if market == "HK" else "CNY"
-        live = bool(tick and ref["currency"] == currency and in_session(now, market) and current(tick, now, market)
-                    and fresh(tick.get("at"), now) and current(data["quotes"].get(BENCHMARKS[market]), now, market))
-        exchange_close = time(16) if market == "HK" else time(15)
-        closed_tick = bool(tick and ref["currency"] == currency and now.time() >= exchange_close
-                           and current(tick, now, market) and len(tick["at"]) > 10
-                           and datetime.fromisoformat(tick["at"]).time() >= exchange_close)
-        previous = previous_session(data, now.date().isoformat(), market)
-        index_reading = temperature.reading({"code": "hkIndex" if market == "HK" else "cnIndex"}, bars,
-                                            tick if live or closed_tick else {}, now, previous, live)
-        if (index_reading["temperature"] is not None and (fund_reading["temperature"] is None or
-                (index_reading["temperature_at"] or "")[:10] >= (fund_reading["temperature_at"] or "")[:10])):
-            reading = index_reading
-            basis = "按价格指数涨跌盘中暂估" if reading["temperature_live"] else "指数收盘"
-            if reading["reference_close"] is not None:
-                basis = "按价格指数收盘涨跌暂估"
-            fields.update(reading_basis=f"{name} · {basis}", reading_fallback=False)
-            closes = [v for _, v in bars]
-            if reading["temperature_live"]:
-                closes.append(closes[-1] * tick["price"] / tick["prev_close"])
-            elif reading["reference_close"] is not None:
-                closes.append(reading["reference_close"])
-            fields["_index_closes"] = closes
-    return {**reading, **fields}
+    day = now.date().isoformat()
+    previous = previous_session(data, day, market)
+    valid_tick = (ref.get("currency") == currency and quote.get("currency", currency) == currency
+                  and current(quote, now, market) and quote.get("prev_close") and quote.get("price"))
+    close = time(16) if market == "HK" else time(15)
+    live = bool(valid_tick and not quote.get("date_only") and quote.get("quote_type") != "close"
+                and in_session(now, market) and fresh(quote.get("at"), now)
+                and current(data["quotes"].get(BENCHMARKS[market]), now, market))
+    final = bool(valid_tick and now.time() >= close and len(quote["at"]) > 10
+                 and datetime.fromisoformat(quote["at"]).time() >= close)
+    result = temperature.reading({"code": "hkIndex" if market == "HK" else "cnIndex"}, bars,
+                                 quote if live or final else {}, now, previous, live)
+    basis = "指数收盘" if bars else "指数历史待更新"
+    if result["temperature_live"]:
+        basis = "按价格指数涨跌盘中暂估"
+    elif result["reference_close"] is not None:
+        basis = "按价格指数收盘涨跌暂估"
+    closes = [value for _, value in bars]
+    if result["temperature_live"]:
+        closes.append(closes[-1] * quote["price"] / quote["prev_close"])
+    elif result["reference_close"] is not None:
+        closes.append(result["reference_close"])
+    return {**result, "benchmark_name": name, "benchmark_code": symbol, "reference_is_index": True,
+            "reference_kind": ref.get("kind"), "reference_symbol": ref.get("symbol"),
+            "reference_currency": currency, "reference_provider": ref.get("provider"),
+            "reference_url": ref.get("url"), "reference_launch": ref.get("launch"),
+            "reference_method_since": ref.get("method_since"),
+            "reference_note": ref.get("note"), "reference_yield": ref.get("yield_pct"),
+            "reference_yield_approx": ref.get("yield_approx", False), "reference_yield_url": ref.get("yield_history_source"),
+            "reference_yield_at": ref.get("yield_at"), "reference_yield_method": ref.get("yield_method"),
+            "reading_basis": f"{name} · {basis}", "reading_fallback": False}, closes
 
 
 def evaluate(item, data, now):
     code = item["code"]
-    market = "HK" if code.startswith("hk") else "CN"
+    is_index = item["type"] == "指数"
+    market = INDEX_BENCHMARKS[code][3] if is_index else ("HK" if code.startswith("hk") else "CN")
     q = data["quotes"].get(code)
     extras = {}
     if item.get("index"):
@@ -227,15 +220,16 @@ def evaluate(item, data, now):
            "macd": None, "yield_pct": None, "gap": None,
            "signals": [], "reasons": [], "signal_at": None}
     valid = current(q, now, market)
-    bars = temperature.closed_history(data, item, now)
-    observation = temperature.reading(
-        item, bars, q, now, previous_session(data, now.date().isoformat(), market),
-        valid and in_session(now, market) and fresh(at, now))
-    if code in ETF_BENCHMARKS:
-        observation = etf_observation(item, data, now, observation)
-    index_closes = observation.pop("_index_closes", None)
+    if is_index:
+        observation, closes = index_observation(item, data, now, q)
+    else:
+        bars = temperature.closed_history(data, item, now)
+        observation = temperature.reading(
+            item, bars, q, now, previous_session(data, now.date().isoformat(), market),
+            valid and in_session(now, market) and fresh(at, now))
+        closes = indicator_closes(item, data, q, market) if price else []
     row.update(observation)
-    if price:
+    if price and not is_index:
         if not item.get("index") or valid:
             row["gap"] = (price / item["first"] - 1) * 100
         if row["iopv"]:
@@ -243,36 +237,39 @@ def evaluate(item, data, now):
         cash = data.get("cash:" + code)
         if cash is not None:
             row["yield_pct"] = 100 * cash / price
-        closes = index_closes or indicator_closes(item, data, q, market)
-        if closes:
-            row["rsi"] = wilder_rsi(closes)
-            if item.get("rsi7_max") is not None:
-                row["rsi7"] = wilder_rsi(closes, 7)
-            if item["type"] == "ETF":
-                row["macd"] = macd_histogram(closes)
-            window = item.get("drawdown_days")
-            if window and len(closes) >= window:
-                row["drawdown"] = (closes[-1] / max(closes[-window:]) - 1) * 100
-        factors = row["temperature_components"]
-        if factors and (index_closes or (at and row["temperature_at"][:10] == at[:10])):
-            row["rsi"], row["rsi7"] = factors["rsi14"], factors["rsi7"]
-            row["rsi_at"] = row["temperature_at"]
+    if closes:
+        row["rsi"] = wilder_rsi(closes)
+        if item.get("rsi7_max") is not None:
+            row["rsi7"] = wilder_rsi(closes, 7)
+        if is_index or item["type"] == "ETF":
+            row["macd"] = macd_histogram(closes)
+        window = item.get("drawdown_days")
+        if window and len(closes) >= window:
+            row["drawdown"] = (closes[-1] / max(closes[-window:]) - 1) * 100
+    factors = row["temperature_components"]
+    if factors and (is_index or (at and row["temperature_at"][:10] == at[:10])):
+        row["rsi"], row["rsi7"] = factors["rsi14"], factors["rsi7"]
+        row["rsi_at"] = row["temperature_at"]
+    if is_index:
+        row["rsi_at"] = row["temperature_at"]
     signals, reasons = row["signals"], row["reasons"]
     if valid:
         basis = ("公布净值" if len(at) == 10 else "估算净值") if item.get("index") else "价格"
         if item.get("second") and price <= item["second"]:
             signals.append("second")
             reasons.append(f"{basis}到达二档 ≤ {item['second']:g}")
-        elif price <= item["first"]:
+        elif item.get("first") is not None and price <= item["first"]:
             signals.append("first")
             reasons.append(f"{basis}到达首档 ≤ {item['first']:g}")
-        add_indicator(row, "rsi", "RSI(14)", row["rsi"], item.get("rsi_max"), item.get("rsi_second_max"))
-        add_indicator(row, "rsi7", "RSI(7)", row["rsi7"], item.get("rsi7_max"), item.get("rsi7_second_max"))
+        current_indicators = not is_index or (row.get("rsi_at") or "")[:10] == now.date().isoformat()
+        if current_indicators:
+            add_indicator(row, "rsi", "RSI(14)", row["rsi"], item.get("rsi_max"), item.get("rsi_second_max"))
+            add_indicator(row, "rsi7", "RSI(7)", row["rsi7"], item.get("rsi7_max"), item.get("rsi7_second_max"))
         temp = row["temperature"]
         if row["temperature_live"] and temp is not None and temp <= temperature.LIMITS[1]:
             signals.append("cold_second" if temp <= temperature.LIMITS[0] else "cold")
             reasons.append(f"{temperature.band(temp)} {temp:g}°")
-        if row["drawdown"] is not None and round(row["drawdown"], 8) < -item["drawdown_pct"]:
+        if current_indicators and row["drawdown"] is not None and round(row["drawdown"], 8) < -item["drawdown_pct"]:
             signals.append("drawdown")
             reasons.append(f"{item['drawdown_days']} 日收盘回撤超过 {item['drawdown_pct']}%")
         row["signal_at"] = at
@@ -299,7 +296,7 @@ def evaluate(item, data, now):
         status = "second"
     elif "first" in signals:
         status = "first"
-    elif not signals and ((item.get("rsi_max") and row["rsi"] is None)
+    elif not signals and ((is_index and (not row["temperature_at"] or row["temperature_at"][:10] != now.date().isoformat())) or (item.get("rsi_max") and row["rsi"] is None)
                           or (item.get("rsi7_max") and row["rsi7"] is None)
                           or (item.get("index") and (not valid or not valid_index or idx["pct"] is None))):
         status = "partial"
@@ -312,7 +309,7 @@ def evaluate(item, data, now):
 
 def build(watchlist, data, now):
     rows = [evaluate(item, data, now) for item in watchlist]
-    if not any(r["price"] or r.get("index_at") for r in rows):
+    if not any(r["price"] or r.get("index_at") or r.get("reference_is_index") and r.get("temperature_at") for r in rows):
         raise RuntimeError("所有监控行情源均无可用数据，本次停止发布。")
     rows.sort(key=lambda r: (r["gap"] is None, r["gap"] or 0, r["code"]))
     benchmarks = {market: data["quotes"].get(code) for market, code in BENCHMARKS.items()}
@@ -345,7 +342,7 @@ def render(snapshot, output, data=None):
     serialized = json.dumps(snapshot, ensure_ascii=False, allow_nan=False, separators=(",", ":"))
     index = (template / "index.html").read_text(encoding="utf-8")
     table = "".join("<tr>" + "".join(f"<td>{html.escape(str(v))}</td>" for v in
-                    (r["name"], r["code"], r["price"] or "—", r["first"], r["label"])) + "</tr>"
+                    (r["name"], r["code"], r["price"] or "—", r.get("first", "—"), r["label"])) + "</tr>"
                     for r in snapshot["rows"])
     index = index.replace("__ROWS__", table).replace("__SNAPSHOT__", serialized.replace("<", "\\u003c"))
     for asset in ("style.css", "app.js", "thermometer.css", "thermometer.js"):
@@ -357,9 +354,9 @@ def render(snapshot, output, data=None):
     now = datetime.fromisoformat(snapshot["generated"])
     for row in snapshot["rows"]:
         if row.get("reference_is_index"):
-            ref = (data or {})["benchmark:" + row["code"]]
-            bars = temperature.closed_bars(ref["bars"], now, ETF_BENCHMARKS[row["code"]][3])
-            source = f"{row['reference_provider']} · {row['reference_symbol']} · {row['reference_kind']}"
+            ref = (data or {}).get("benchmark:" + row["code"]) or {}
+            bars = temperature.closed_bars(ref.get("bars") or [], now, row["market"])
+            source = " · ".join(filter(None, (row["reference_provider"], row["reference_symbol"], row["reference_kind"]))) or "指数日线待更新"
         else:
             bars = temperature.closed_history(data or {}, row, now)
             if row.get("reference_close") is not None:
@@ -368,6 +365,11 @@ def render(snapshot, output, data=None):
         page = temperature.page_data(row, bars, source)
         payload = json.dumps(page, ensure_ascii=False, allow_nan=False, separators=(",", ":")).replace("<", "\\u003c")
         write_page(folder / (row["code"] + ".html"), template_text.replace("__THERMO_DATA__", payload))
+        if row.get("previous_code"):
+            link = html.escape(row["code"] + ".html", quote=True)
+            write_page(folder / (row["previous_code"] + ".html"),
+                       f'<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta http-equiv="refresh" '
+                       f'content="0;url={link}"><title>指数温度计</title><a href="{link}">打开指数温度计</a></html>')
     write_page(output / "snapshot.json", serialized)
     write_page(output / "index.html", index)
 

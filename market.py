@@ -15,14 +15,17 @@ from urllib.request import Request, urlopen
 CST = timezone(timedelta(hours=8))
 BENCHMARKS = {"CN": "sh000001", "HK": "hkHSI"}
 # Price-index quote identifiers include the exchange to avoid equity code collisions.
-ETF_BENCHMARKS = {
-    "sh512890": ("中证红利低波动指数", "H30269", "2.H30269", "CN"),
-    "sh515180": ("中证红利指数", "000922", "1.000922", "CN"),
-    "sz159201": ("国证自由现金流指数", "980092", "0.980092", "CN"),
-    "sh513530": ("中证港股通高股息投资指数", "930914", "2.930914", "HK"),
-    "sz159545": ("恒生港股通高股息低波动指数", "HSHYLV", "124.HSHYLV", "HK"),
-    "sh515450": ("标普中国A股大盘红利低波50指数", "SPCLLHCP", None, "CN"),
+INDEX_BENCHMARKS = {
+    "H30269": ("中证红利低波动指数", "H30269", "2.H30269", "CN"),
+    "000922": ("中证红利指数", "000922", "1.000922", "CN"),
+    "980092": ("国证自由现金流指数", "980092", "0.980092", "CN"),
+    "930914": ("中证港股通高股息投资指数", "930914", "2.930914", "HK"),
+    "HSHYLV": ("恒生港股通高股息低波动指数", "HSHYLV", "124.HSHYLV", "HK"),
+    "SPCLLHCP": ("标普中国A股大盘红利低波50指数", "SPCLLHCP", None, "CN"),
 }
+ETF_INDEX_CODES = {"sh512890": "H30269", "sh515180": "000922", "sz159201": "980092",
+                   "sh513530": "930914", "sz159545": "HSHYLV", "sh515450": "SPCLLHCP"}
+ETF_BENCHMARKS = {code: INDEX_BENCHMARKS[symbol] for code, symbol in ETF_INDEX_CODES.items()}
 DATA_ERRORS = (OSError, http.client.HTTPException, ValueError, TypeError, KeyError, IndexError)
 
 
@@ -78,6 +81,8 @@ def tencent_quotes(codes, etfs):
 
 
 def secid(code):
+    if code in INDEX_BENCHMARKS:
+        return INDEX_BENCHMARKS[code][2]
     if code.startswith("idx:"):
         return code[4:]
     if code.startswith("csi"):
@@ -89,7 +94,9 @@ def secid(code):
 
 
 def eastmoney_quotes(codes):
-    ids = {secid(code): code for code in codes}
+    ids = {key: code for code in codes if (key := secid(code)) is not None}
+    if not ids:
+        return {}
     params = urlencode({"secids": ",".join(ids), "fltt": 2, "invt": 2,
                         "fields": "f2,f3,f5,f12,f13,f18,f124,f297,f441"})
     for host in ("push2", "push2delay"):
@@ -346,23 +353,55 @@ def combine_quotes(primary, backup):
 
 
 def benchmark_reference(code, today):
-    if code in {"sz159545", "sh515450"}:
+    code = ETF_INDEX_CODES.get(code, code)
+    if code in {"HSHYLV", "SPCLLHCP"}:
         from global_reference import get_reference
     else:
         from csi_reference import get_reference
     return get_reference(code, today)
 
 
+def index_close_quote(code, today):
+    """Last published price-index close for display if dated quotes are unavailable."""
+    if code == "HSHYLV":
+        from global_reference import hang_seng_price_bars
+        bars = hang_seng_price_bars(today)
+        provider = "恒生指数"
+    elif code in {"H30269", "000922", "930914", "980092"}:
+        from csi_reference import cni_bars, csi_bars
+        loader = cni_bars if code == "980092" else csi_bars
+        provider = "国证指数" if code == "980092" else "中证指数"
+        bars = loader(code, (today - timedelta(days=35)).isoformat(), today)
+    else:
+        return None
+    market = INDEX_BENCHMARKS[code][3]
+    end_hour = 16 if market == "HK" else 15
+    now = datetime.now(CST)
+    # Official daily endpoints can include today's unfinished bar. Date-only
+    # closes carry a session-time label and never qualify as intraday quotes.
+    for day, close in reversed(bars):
+        at = datetime.fromisoformat(f"{day}T{end_hour:02d}:00:00").replace(tzinfo=CST)
+        if at <= now and at.date() <= today:
+            return {"price": close, "at": at.isoformat(), "source": provider + "日收盘",
+                    "prev_close": None, "pct": None, "quote_type": "close", "date_only": True}
+    return None
+
+
 def collect(watchlist, today, *, references=None):
-    exchange = [i["code"] for i in watchlist if i["type"] != "场外基金"]
+    exchange = [i["code"] for i in watchlist if i["type"] not in {"场外基金", "指数"}]
     etfs = {i["code"] for i in watchlist if i["type"] == "ETF"}
+    indexes = {i["code"] for i in watchlist if i["type"] == "指数" and i["code"] in INDEX_BENCHMARKS}
     funds = [i for i in watchlist if i["type"] == "场外基金"]
     codes = exchange + list(BENCHMARKS.values())
-    index_quotes = ["idx:" + ETF_BENCHMARKS[code][2] for code in etfs
-                    if code in ETF_BENCHMARKS and ETF_BENCHMARKS[code][2]]
+    legacy = {ETF_INDEX_CODES[code] for code in etfs.intersection(ETF_INDEX_CODES)}
+    wanted = indexes | legacy
+    index_quotes = sorted(code for code in wanted if INDEX_BENCHMARKS[code][2])
     jobs = {"primary": (tencent_quotes, codes, etfs),
             "backup": (eastmoney_quotes, codes + ["csi" + i["index"] for i in funds] + index_quotes)}
-    for code in etfs.intersection(ETF_BENCHMARKS):
+    if "SPCLLHCP" in wanted:
+        from global_reference import sp_price_quote
+        jobs["sp_quote"] = (sp_price_quote, today)
+    for code in indexes | etfs.intersection(ETF_BENCHMARKS):
         jobs["benchmark:" + code] = (benchmark_reference, code, today)
     calendar_key = "calendar:" + today.isoformat()
     jobs[calendar_key] = (cn_trading_day, today)
@@ -382,7 +421,7 @@ def collect(watchlist, today, *, references=None):
         code = item["code"]
         if item["type"] in {"ETF", "场外基金"}:
             jobs["cash:" + code] = (fund_distributions, code[-6:], today)
-        elif code.startswith(("sh", "sz")):
+        elif item["type"] != "指数" and code.startswith(("sh", "sz")):
             jobs["cash:" + code] = (dividends, code, today)
     # Intraday clients may reuse daily bars, reported NAV and cash distributions.
     # Quotes, the benchmark and the fund estimate are fetched on every call.
@@ -397,6 +436,38 @@ def collect(watchlist, today, *, references=None):
             except DATA_ERRORS as exc:
                 print(f"Data unavailable: {key} ({type(exc).__name__})")
     result["quotes"] = combine_quotes(result.pop("primary", {}), result.pop("backup", {}))
+    quotes = result["quotes"]
+    sp_quote = result.pop("sp_quote", None)
+    if sp_quote:
+        quotes["SPCLLHCP"] = sp_quote
+    for code in wanted:
+        if code in quotes and quotes[code]["at"][:10] > today.isoformat():
+            del quotes[code]
+    require_close = {code for code in indexes - {"SPCLLHCP"}
+                     if code not in quotes or quotes[code]["at"][:10] < today.isoformat()}
+    if require_close:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=len(require_close)) as pool:
+            futures = {pool.submit(index_close_quote, code, today): code for code in require_close}
+            for future in concurrent.futures.as_completed(futures):
+                try:
+                    close = future.result()
+                except DATA_ERRORS + (EOFError,):
+                    continue
+                code = futures[future]
+                if close and (code not in quotes or close["at"][:10] > quotes[code]["at"][:10]):
+                    quotes[code] = close
+    for code in wanted.intersection(quotes):
+        q = quotes[code]
+        q.update(symbol=code, kind="价格指数", currency="HKD" if INDEX_BENCHMARKS[code][3] == "HK" else "CNY")
+        q.setdefault("quote_type", "quote")
+        q.pop("iopv", None)
+        if code in legacy and INDEX_BENCHMARKS[code][2]:
+            quotes["idx:" + INDEX_BENCHMARKS[code][2]] = q
+    # A published index level has no traded units. A provider's zero-volume
+    # placeholder cannot indicate a suspension as it can for individual stocks.
+    for code in (wanted | set(BENCHMARKS.values())).intersection(quotes):
+        if quotes[code].get("volume") == 0:
+            quotes[code].pop("volume")
     result["cn_trading_day"] = result.get(calendar_key)
     for key in fund_short_keys:
         # Derive the existing normalized 110-day RSI series from the same download.

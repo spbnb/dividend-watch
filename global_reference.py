@@ -1,17 +1,18 @@
-"""Public Hang Seng and S&P benchmark series for the two linked ETFs."""
+"""Public Hang Seng and S&P index series and S&P price-index quotes."""
 
 import gzip
+import html
 import json
 import re
 import shutil
 import subprocess
 import tempfile
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
-from market import DATA_ERRORS, number
+from market import CST, DATA_ERRORS, ETF_INDEX_CODES, number
 
 
 HANG_SENG = "https://www.hsi.com.hk"
@@ -22,6 +23,8 @@ SOUTHERN_PAGE = SOUTHERN + "/new/personal-financing/detail.html?fundCode=515450"
 SOUTHERN_YIELD_NOTE = ("https://edu.nffund.com/html/moneyschool/monerymiddledetail.html"
                        "?article_id=1a1f1a719b73b206af178594bdaaf8b5&id=2-2")
 SP_NAME = "标普中国A股大盘红利低波50指数"
+FT_SP = "https://markets.ft.com/data/indices/tearsheet/summary?s=SPCLLHCP:IOM"
+SP_YAHOO = "https://query1.finance.yahoo.com/v8/finance/chart/%5ESPCLLHCP?interval=1d&range=1d"
 MONTHS = "Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec".split()
 
 
@@ -61,15 +64,91 @@ def _observations(rows, date_key, value_key, today, *, cumulative=False, start=d
     return sorted(levels.items())
 
 
-def _hang_seng_bars(today):
-    query = urlencode({"data": "valueHistoryPub", "language": "en-hk", "indexCodes": "12033.00"})
+def _hang_seng_bars(today, symbol="12033.00"):
+    name = "Hang Seng SCHK High Dividend Low Volatility Index"
+    if symbol == "12033.00":
+        name += " Total Return Index"
+    query = urlencode({"data": "valueHistoryPub", "language": "en-hk", "indexCodes": symbol})
     report = json.loads(_fetch(f"{HSI_INDEXES}?{query}", HANG_SENG))
-    if report.get("code") == "0":
+    if isinstance(report, dict) and report.get("code") == "0":
         for series in report.get("data") or []:
-            if (isinstance(series, dict) and series.get("indexCode") == "12033.00" and
-                    series.get("indexName") == "Hang Seng SCHK High Dividend Low Volatility Index Total Return Index"):
+            if isinstance(series, dict) and series.get("indexCode") == symbol and series.get("indexName") == name:
                 return _observations(series.get("valueHistory") or [], "date", "close", today)
     return []
+
+
+def hang_seng_price_bars(today):
+    return _hang_seng_bars(today, "02033.00")
+
+
+def _ft_sp_quote(today):
+    page = _fetch(FT_SP, "https://markets.ft.com/").decode("utf-8")
+    header = re.search(r'class="mod-tearsheet-overview__header__symbol"[^>]*>\s*<span>SPCLLHCP:IOM</span>', page)
+    if not header:
+        return None
+    block = page[header.end():].partition('class="mod-ui-show-more"')[0]
+    text = " ".join(html.unescape(re.sub(r"<[^>]+>", " ", block)).split())
+    price_match = re.search(r"\bPrice \(CNY\) ([\d,]+(?:\.\d+)?)\b", text)
+    stamp = re.search(r"\bas of ([A-Z][a-z]{2}) (\d{1,2}) (\d{4}) (\d\d):(\d\d) (GMT|UTC|BST)\b", text)
+    if not price_match or not stamp or stamp[1] not in MONTHS:
+        return None
+    price = number(price_match[1].replace(",", ""), positive=True)
+    zone = timezone(timedelta(hours=1 if stamp[6] == "BST" else 0))
+    at = datetime(int(stamp[3]), MONTHS.index(stamp[1]) + 1, int(stamp[2]), int(stamp[4]), int(stamp[5]),
+                  tzinfo=zone).astimezone(CST)
+    if price is None or at.date() > today or at.weekday() >= 5:
+        return None
+    quote = {"price": price, "at": at.isoformat(), "prev_close": None, "pct": None,
+             "source": "FT Markets（延时指数行情）"}
+    change = re.search(r"Today['’]s Change ([+\-−]?[\d,.]+) / ([+\-−]?[\d.]+)%", text)
+    if change:
+        move = number(change[1].replace(",", "").replace("−", "-"))
+        pct = number(change[2].replace("−", "-"))
+        if move is not None and pct is not None:
+            prev_close = round(price - move, 6)
+            if prev_close > 0 and abs(100 * move / prev_close - pct) < 0.025:
+                quote.update(prev_close=prev_close, pct=pct)
+    return quote
+
+
+def _yahoo_sp_quote(today):
+    chart = json.loads(_fetch(SP_YAHOO, "https://finance.yahoo.com/"))["chart"]["result"][0]
+    meta = chart["meta"]
+    if not isinstance(meta, dict) or (meta.get("symbol"), meta.get("currency"), meta.get("instrumentType"), meta.get("exchangeName")) != (
+            "^SPCLLHCP", "CNY", "INDEX", "SNP"):
+        return None
+    price = number(meta.get("regularMarketPrice"), positive=True)
+    stamp = number(meta.get("regularMarketTime"), positive=True)
+    if price is None or stamp is None:
+        return None
+    at = datetime.fromtimestamp(stamp, CST)
+    if at.date() > today or at.weekday() >= 5:
+        return None
+    # Yahoo's snapshot level and timestamp match FT, but its previous close
+    # for this index can refer to a different session. Do not infer a return.
+    return {"price": price, "at": at.isoformat(), "prev_close": None, "pct": None,
+            "source": "Yahoo Finance（标普价格指数点位）"}
+
+
+def sp_price_quote(today):
+    try:
+        quote = _ft_sp_quote(today)
+    except DATA_ERRORS + (EOFError, OverflowError):
+        quote = None
+    if quote and quote["at"][:10] == today.isoformat():
+        now = datetime.now(CST)
+        observed = datetime.fromisoformat(quote["at"])
+        if now.date() != today or now - observed <= timedelta(minutes=20):
+            return quote
+    try:
+        backup = _yahoo_sp_quote(today)
+    except DATA_ERRORS + (EOFError, OverflowError):
+        backup = None
+    # FT timestamps have minute precision. Prefer its verified previous close
+    # for the same minute, while allowing a newer Yahoo price through.
+    if backup and (not quote or backup["at"][:16] > quote["at"][:16]):
+        return backup
+    return quote
 
 
 def _factsheet_yield(text, today):
@@ -110,7 +189,7 @@ def _hang_seng_yield(today):
 def _southern_data(endpoint, **fields):
     reply = json.loads(_fetch(f"{SOUTHERN}/nfwebApi/fund/{endpoint}", SOUTHERN_PAGE,
                               {"fundCode": "515450", **fields}))
-    if reply.get("code") != "ETS-5BP00000" or not isinstance(reply.get("data"), dict):
+    if not isinstance(reply, dict) or reply.get("code") != "ETS-5BP00000" or not isinstance(reply.get("data"), dict):
         return {}
     return reply["data"]
 
@@ -127,14 +206,15 @@ def _southern_bars(today):
 
 
 def get_reference(code, today):
-    if code not in ("sz159545", "sh515450"):
+    code = ETF_INDEX_CODES.get(code, code)
+    if code not in ("HSHYLV", "SPCLLHCP"):
         return {}
     result = {"bars": [], "yield_pct": None, "yield_at": None, "yield_history": []}
-    if code == "sz159545":
+    if code == "HSHYLV":
         result.update(name="恒生港股通高股息低波动全收益指数", symbol="HSHYLV TRI", kind="全收益指数",
                       currency="HKD", market="HK", provider="恒生指数有限公司", launch="2017-05-08",
                       url=HANG_SENG + "/en-hk/indexes/all-indexes/index-details/?seriesCode=hshylv",
-                      note="官方图表提供约五年港元全收益日线。人民币基金回报受汇率、税费和跟踪误差影响。")
+                      note="官方图表提供约五年港元全收益日线。盘中点位使用港元价格指数。")
         try:
             result["bars"] = _hang_seng_bars(today)
         except DATA_ERRORS + (EOFError,):

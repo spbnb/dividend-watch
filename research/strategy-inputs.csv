@@ -1,12 +1,7 @@
-﻿code,basis,start,end,signal_days,cold_days,ultra_days,rsi_correlation,signal_hash,trade_hash
-sh512890,H20269,2023-01-03,2026-11-27,939,22,0,0.9435,070a6dc77ce96bdd,6a8eddfa2e3f961c
-sh513530,H20914,2023-01-03,2026-11-27,917,16,0,0.9343,d4733e02231a0ccb,85877e307015f023
-sh515180,H00922,2023-01-03,2026-11-27,939,22,1,0.9413,0ee268917b4dc02c,3aa3833e7fd25e0f
-sh515450,SPCLLHCP,2023-01-03,2026-11-27,938,22,0,0.9406,65ccc95110096991,f77300468c72ab24
-sh600036,sh600036复权,2023-01-03,2026-11-27,941,93,5,0.9397,bd8211ae1f9f0b42,bd8211ae1f9f0b42
-sh600900,sh600900复权,2023-01-03,2026-11-27,941,37,1,0.9384,9610f7e21dde33dc,9610f7e21dde33dc
-sh600938,sh600938复权,2023-05-05,2026-11-27,861,23,0,0.93,4822d7b573f8d92b,4822d7b573f8d92b
-sh601318,sh601318复权,2023-01-03,2026-11-27,941,87,3,0.9303,ecc594964782a6eb,ecc594964782a6eb
-sh601398,sh601398复权,2023-01-03,2026-11-27,941,2,0,0.9396,69b8cdaaf459f490,69b8cdaaf459f490
-sz159201,480092,2025-02-27,2026-11-27,424,20,0,0.941,b81b7045ab660b08,e8ac514e724b82c6
-sz159545,HSHYLV TRI,2024-04-15,2026-11-27,615,26,5,0.9323,53bf4b114ebf4247,58e72f27420281c8
+﻿monitor_code,return_series,kind,currency,name,provider,source,history_start,history_end,bars,published,method_since,first_execution,first_rank_execution,eligible_signal_days,min_score,cold_days,ultra_days,rsi_correlation,sha256
+H30269,H20269,全收益指数,CNY,中证红利低波动全收益指数,中证指数,https://www.csindex.com.cn/#/indices/family/detail?indexCode=H30269,2005-12-30,2026-11-26,5078,2013-12-19,,2013-12-20,2013-12-20,3145,8.8,146,2,0.9359,070a6dc77ce96bdd705359b97619d695bc713c244b56754b74538efcb3cfec1f
+000922,H00922,全收益指数,CNY,中证红利全收益指数,中证指数,https://www.csindex.com.cn/#/indices/family/detail?indexCode=000922,2004-12-31,2026-11-26,5320,2008-05-26,,2008-05-27,2009-02-20,4498,8.3,448,8,0.9388,0ee268917b4dc02cd8f8a7578ea908db2ba9d9888b93677b0c7d356057404a22
+930914,H20914,全收益指数,HKD,中证港股通高股息投资全收益指数,中证指数,https://www.csindex.com.cn/#/indices/family/detail?indexCode=930914,2014-11-14,2026-11-26,3000,2016-11-25,,2016-11-28,2018-10-24,2469,6.2,170,8,0.9376,d4733e02231a0ccb7dcbc6f2aac71ca9f9211d7c6ebe3cf326529f0dea5c975f
+980092,480092,全收益指数,CNY,国证自由现金流全收益指数,国证指数,https://www.cnindex.com.cn/module/index-detail.html?act_menu=1&indexCode=980092,2012-12-31,2026-11-26,3375,2012-12-28,2024-08-15,2024-08-16,2024-08-16,551,13.6,20,0,0.9387,b81b7045ab660b0867352b838d047d0125eb7ca5bbe1bc2877b3bd7f7b03ee00
+HSHYLV,HSHYLV TRI,全收益指数,HKD,恒生港股通高股息低波动全收益指数,恒生指数有限公司,https://www.hsi.com.hk/en-hk/indexes/all-indexes/index-details/?seriesCode=hshylv,2021-11-26,2026-11-27,1230,2017-05-08,,2022-12-01,2025-12-23,979,4.8,31,5,0.9364,53bf4b114ebf42472e669ae8d2a8e65c4322dcdcf33643674e8d4af5d377105c
+SPCLLHCP,SPCLLHCP,价格指数,CNY,标普中国A股大盘红利低波50指数,南方基金·业绩比较基准（重定基100）,https://www.nffund.com/new/personal-financing/detail.html?fundCode=515450,2020-02-25,2026-11-26,1639,2019-04-01,,2021-03-08,2024-04-11,1388,10.7,78,0,0.9366,65ccc9511009699149afe024d7c3208aa68788b26cdffe8a63d3bc6a0681e94f

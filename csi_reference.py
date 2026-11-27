@@ -1,13 +1,17 @@
-"""Official closing series and dated index dividend yields for the monitored funds."""
+"""Official closing series and dated index dividend yields."""
 
 import gzip
 import http.client
 import json
 import math
 import struct
-from datetime import date
+import time
+from datetime import date, timedelta
+from urllib.error import HTTPError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
+
+from market import ETF_INDEX_CODES
 
 
 CSI = "https://www.csindex.com.cn"
@@ -17,23 +21,32 @@ CSI_INDICATOR = "https://oss-ch.csindex.com.cn/static/html/csindex/public/upload
 
 # Price-index code, corresponding total-return index, its name, base date, publication date.
 SERIES = {
-    "sh512890": ("H30269", "H20269", "中证红利低波动全收益指数", "2005-12-30", "2013-12-19"),
-    "sh515180": ("000922", "H00922", "中证红利全收益指数", "2004-12-31", "2008-05-26"),
-    "sh513530": ("930914", "H20914", "中证港股通高股息投资全收益指数", "2014-11-14", "2016-11-25"),
-    "sz159201": ("980092", "480092", "国证自由现金流全收益指数", "2012-12-31", "2012-12-28"),
-    "012708": ("931446", "921446", "中证东方红红利低波动全收益指数", "2009-12-31", "2020-04-21"),
+    "H30269": ("H30269", "H20269", "中证红利低波动全收益指数", "2005-12-30", "2013-12-19"),
+    "000922": ("000922", "H00922", "中证红利全收益指数", "2004-12-31", "2008-05-26"),
+    "930914": ("930914", "H20914", "中证港股通高股息投资全收益指数", "2014-11-14", "2016-11-25"),
+    "980092": ("980092", "480092", "国证自由现金流全收益指数", "2012-12-31", "2012-12-28"),
+    "931446": ("931446", "921446", "中证东方红红利低波动全收益指数", "2009-12-31", "2020-04-21"),
 }
+# Existing historical research calls can still resolve former watchlist keys.
+SERIES.update({fund: SERIES[symbol] for fund, symbol in ETF_INDEX_CODES.items() if symbol in SERIES})
+SERIES["012708"] = SERIES["931446"]
 SOURCE_ERRORS = (OSError, EOFError, http.client.HTTPException, ValueError, KeyError, TypeError, IndexError)
 
 
 def _download(url, referer):
     request = Request(url, headers={"User-Agent": "Mozilla/5.0", "Referer": referer,
                                     "Accept-Encoding": "gzip"})
-    with urlopen(request, timeout=8) as response:
-        data = response.read()
-        if response.headers.get("Content-Encoding", "").lower() == "gzip":
-            data = gzip.decompress(data)
-        return data
+    for attempt in range(2):
+        try:
+            with urlopen(request, timeout=10) as response:
+                data = response.read()
+                if response.headers.get("Content-Encoding", "").lower() == "gzip":
+                    data = gzip.decompress(data)
+                return data
+        except (OSError, EOFError, http.client.HTTPException) as exc:
+            if attempt or isinstance(exc, HTTPError) and exc.code < 500 and exc.code not in {408, 429}:
+                raise
+            time.sleep(0.3)
 
 
 def _day(value):
@@ -66,7 +79,11 @@ def _series(rows, start, today, *, allow_zero=False):
 
 def csi_bars(symbol, base, today):
     """Accept either official price or total-return code. Never splice different series."""
-    params = urlencode({"indexCode": symbol, "startDate": base.replace("-", ""),
+    start = date.fromisoformat(base)
+    # If a query starts on a holiday CSI repeats the NEXT trading day's close
+    # on that requested start date. Put any synthetic boundary outside our range.
+    query_start = start - timedelta(days=1) if start > date.min else start
+    params = urlencode({"indexCode": symbol, "startDate": query_start.strftime("%Y%m%d"),
                         "endDate": today.strftime("%Y%m%d")})
     data = json.loads(_download(f"{CSI}/csindex-home/perf/index-perf?{params}", CSI))
     if not isinstance(data, dict) or data.get("success") is not True:
@@ -76,7 +93,7 @@ def csi_bars(symbol, base, today):
         return []
     return _series(((row["tradeDate"], row.get("close")) for row in rows
                     if isinstance(row, dict) and row.get("indexCode") == symbol and "tradeDate" in row),
-                   date.fromisoformat(base), today)
+                   start, today)
 
 
 def cni_bars(symbol, base, today):
@@ -145,7 +162,7 @@ def get_reference(code, today):
         result["note"] = ("前身指数于2012-12-28发布。2024-08-15更名并修订选样、权重与调样规则，"
                           "此前数据不能代表现行策略的实盘表现。")
     elif hkd:
-        result["note"] = "指数按港元计价。基金人民币回报还受汇率、税费和跟踪误差影响。"
+        result["note"] = "价格指数和全收益指数均按港元计价。"
     try:
         result["bars"] = (cni_bars if cni else csi_bars)(symbol, base, today)
     except SOURCE_ERRORS:
