@@ -14,6 +14,15 @@ from urllib.request import Request, urlopen
 
 CST = timezone(timedelta(hours=8))
 BENCHMARKS = {"CN": "sh000001", "HK": "hkHSI"}
+# Price-index quote identifiers include the exchange to avoid equity code collisions.
+ETF_BENCHMARKS = {
+    "sh512890": ("中证红利低波动指数", "H30269", "2.H30269", "CN"),
+    "sh515180": ("中证红利指数", "000922", "1.000922", "CN"),
+    "sz159201": ("国证自由现金流指数", "980092", "0.980092", "CN"),
+    "sh513530": ("中证港股通高股息投资指数", "930914", "2.930914", "HK"),
+    "sz159545": ("恒生港股通高股息低波动指数", "HSHYLV", "124.HSHYLV", "HK"),
+    "sh515450": ("标普中国A股大盘红利低波50指数", "SPCLLHCP", None, "CN"),
+}
 DATA_ERRORS = (OSError, http.client.HTTPException, ValueError, TypeError, KeyError, IndexError)
 
 
@@ -69,6 +78,8 @@ def tencent_quotes(codes, etfs):
 
 
 def secid(code):
+    if code.startswith("idx:"):
+        return code[4:]
     if code.startswith("csi"):
         return "2." + code[3:]
     if code == "hkHSI":
@@ -334,13 +345,25 @@ def combine_quotes(primary, backup):
     return merged
 
 
+def benchmark_reference(code, today):
+    if code in {"sz159545", "sh515450"}:
+        from global_reference import get_reference
+    else:
+        from csi_reference import get_reference
+    return get_reference(code, today)
+
+
 def collect(watchlist, today, *, references=None):
     exchange = [i["code"] for i in watchlist if i["type"] != "场外基金"]
     etfs = {i["code"] for i in watchlist if i["type"] == "ETF"}
     funds = [i for i in watchlist if i["type"] == "场外基金"]
     codes = exchange + list(BENCHMARKS.values())
+    index_quotes = ["idx:" + ETF_BENCHMARKS[code][2] for code in etfs
+                    if code in ETF_BENCHMARKS and ETF_BENCHMARKS[code][2]]
     jobs = {"primary": (tencent_quotes, codes, etfs),
-            "backup": (eastmoney_quotes, codes + ["csi" + i["index"] for i in funds])}
+            "backup": (eastmoney_quotes, codes + ["csi" + i["index"] for i in funds] + index_quotes)}
+    for code in etfs.intersection(ETF_BENCHMARKS):
+        jobs["benchmark:" + code] = (benchmark_reference, code, today)
     calendar_key = "calendar:" + today.isoformat()
     jobs[calendar_key] = (cn_trading_day, today)
     for code in sorted(set(exchange).union(BENCHMARKS.values())):
@@ -364,7 +387,7 @@ def collect(watchlist, today, *, references=None):
     # Intraday clients may reuse daily bars, reported NAV and cash distributions.
     # Quotes, the benchmark and the fund estimate are fetched on every call.
     result = {k: v for k, v in (references or {}).items()
-              if k in fund_short_keys or k == calendar_key or (k in jobs and k.startswith(("history:", "long:", "nav:", "cash:")))}
+              if k in fund_short_keys or k == calendar_key or (k in jobs and k.startswith(("history:", "long:", "nav:", "cash:", "benchmark:")))}
     with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
         futures = {pool.submit(fn, *args): key for key, (fn, *args) in jobs.items() if key not in result}
         for future in concurrent.futures.as_completed(futures):

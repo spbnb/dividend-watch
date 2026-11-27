@@ -34,6 +34,16 @@ def collect_local(items, now, cache_path):
     observed = {k: v for k, v in data.items()
                 if (k.startswith(("history:", "nav:", "long:")) and v)
                 or (k.startswith(("cash:", "calendar:")) and v is not None)}
+    for key, value in data.items():
+        if not key.startswith("benchmark:") or not isinstance(value, dict):
+            continue
+        cached = references.get(key) or {}
+        if cached.get("bars") and not value.get("bars"):
+            value = {**cached, **{k: v for k, v in value.items() if k.startswith("yield_") and v is not None}}
+        elif cached.get("yield_pct") is not None and value.get("yield_pct") is None:
+            value = {**value, **{k: v for k, v in cached.items() if k.startswith("yield_")}}
+        if value.get("bars") or value.get("yield_pct") is not None:
+            observed[key] = value
     if using_cache and observed.keys() <= references.keys():
         return data
     references.update(observed)

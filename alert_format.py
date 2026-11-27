@@ -34,6 +34,8 @@ def alert_card(row, signals, now):
     price, first, second = live_price(row, now), row["first"], row.get("second")
     basis = "估算净值" if fund else "价格"
     parts = [f"{stock_name(row)} · {display_code(row['code'])}"]
+    if row.get("reading_basis") and any(s.startswith(("cold", "rsi")) for s in signals):
+        parts.append("技术指标口径　" + row["reading_basis"])
     if signals & {"cold", "cold_second"}:
         level = "超低温" if "cold_second" in signals else "低温"
         parts.append(f"{level}　综合温度 {row['temperature']:g}°（盘中暂估）")

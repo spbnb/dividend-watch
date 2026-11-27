@@ -15,6 +15,10 @@ const observedDay = r => Number.isFinite(r.temperature) ? (r.temperature_at || "
 const rankingDay = snapshot.rows.map(observedDay).sort().at(-1) || "";
 const comparable = r => Number.isFinite(r.temperature) && (!rankingDay || observedDay(r) === rankingDay);
 const dayChange = r => Object.hasOwn(r, "rank_day_pct") ? r.rank_day_pct : r.pct;
+const rateText = value => Number.isFinite(value) ? fmt(value) + "%" : "—";
+const indexRate = row => row.reference_yield_approx && Number.isFinite(row.reference_yield)
+  ? "约" + row.reference_yield + "%" : rateText(row.reference_yield);
+const etfBasis = r => r.reference_kind || "ETF复权价";
 
 function el(tag, text, className) {
   const node = document.createElement(tag);
@@ -30,10 +34,20 @@ function displayCode(r) {
 
 function details(r) {
   const values = [
-    ["最新价 / 净值", fmt(r.price, digits(r)) + " " + r.currency], ["距价格首档", pct(r.gap)], ["提醒状态", r.label],
+    [r.type === "ETF" ? "ETF 场内交易价" : "最新价 / 净值", fmt(r.price, digits(r)) + " " + r.currency], ["距价格首档", pct(r.gap)], ["提醒状态", r.label],
     ["温度观测 · 北京", dateText(r.temperature_at)], ["数据来源", r.source || "行情暂缺"], ["价格时间 · 北京", dateText(r.at)],
     ["首档 / 二档", fmt(r.first, digits(r)) + (r.second ? " / " + fmt(r.second, digits(r)) : "") + " " + r.currency]
   ];
+  if (r.type === "ETF") {
+    values.push(
+      ["ETF 场内当日涨跌", pct(r.pct)],
+      ["ETF 实际派息率（近 365 日）", rateText(r.yield_pct)],
+      ["跟踪指数", [r.benchmark_name, r.benchmark_code].filter(Boolean).join(" · ") || "—"],
+      ["本次读数来源", r.reading_basis || etfBasis(r)],
+      ["历史统计序列", [etfBasis(r), r.reference_symbol, r.reference_currency, r.reference_provider].filter(Boolean).join(" · ")],
+      ["指数股息率", [indexRate(r), r.reference_yield_at, r.reference_yield_method].filter(Boolean).join(" · ")]
+    );
+  }
   const limits = (first, second, unit = "") => first == null ? "" :
     " · 首档 ≤ " + first + unit + (second == null ? "" : " / 二档 ≤ " + second + unit);
   if (r.rsi_max != null || r.drawdown_days) {
@@ -43,7 +57,7 @@ function details(r) {
   if (r.type === "ETF" && (r.rsi_max != null || r.drawdown_days)) values.push(["MACD 柱 (12,26,9)", fmt(r.macd, 4)]);
   if (r.drawdown_days) values.push([r.drawdown_days + " 日收盘回撤", pct(r.drawdown) + " · 阈值 < −" + r.drawdown_pct + "%"]);
   if (r.premium_max != null) values.push(["IOPV", fmt(r.iopv, 4)], ["盘中溢价", pct(r.premium) + " · 上限 " + r.premium_max + "%"]);
-  else if (r.show_premium) values.push(["盘中参考净值（IOPV）", fmt(r.iopv, 4)], ["折溢价（仅供观察）", pct(r.premium)]);
+  else if (r.type === "ETF" || r.show_premium) values.push(["盘中参考净值（IOPV）", fmt(r.iopv, 4)], ["折溢价（仅供观察）", pct(r.premium)]);
   if (r.yield_min != null) values.push(["近 365 天现金股息率", (r.yield_pct == null ? "—" : fmt(r.yield_pct) + "%") + " · 观察线 " + r.yield_min + "%"]);
   if (r.index) values.push(["最近公布净值", fmt(r.nav, 4) + " · " + (r.nav_day || "—")],
     ["跟踪指数 " + r.index + " 日涨跌", pct(r.index_pct) + limits(r.index_drop, r.index_drop_second, "%")],
@@ -86,13 +100,23 @@ function makeRow(r) {
   const first = el("td"), link = el("a", r.name, "name-link");
   link.href = thermoURL(r);
   link.setAttribute("aria-label", r.name + "温度计");
+  const etf = r.type === "ETF";
   first.append(link, el("small", displayCode(r), "code"));
+  if (etf) {
+    const kind = etfBasis(r);
+    const label = r.reading_fallback ? (r.temperature_live ? "ETF 暂估" : "ETF 复权") : kind === "ETF复权价" ? "ETF 复权" : kind;
+    const basis = el("small",label,"basis-label");
+    basis.title = r.reading_basis || kind;
+    first.append(basis);
+  }
   const move = el("td", null, "num move");
   const change = dayChange(r);
   move.append(el("strong", pct(change), signedClass(change)), el("small", pct(r.ytd_pct), signedClass(r.ytd_pct)));
   const changeAt = Object.hasOwn(r, "rank_day_pct") ? r.temperature_at : r.at;
-  move.title = "当日涨跌日期 " + (changeAt || "待更新").slice(0,10);
-  const divYield = el("td", r.yield_pct == null ? "—" : fmt(r.yield_pct) + "%", "num");
+  move.title = [etf ? r.reading_basis || etfBasis(r) : "", "当日涨跌日期 " + (changeAt || "待更新").slice(0,10)].filter(Boolean).join(" · ");
+  const divYield = el("td", etf ? indexRate(r) : rateText(r.yield_pct), "num");
+  divYield.append(el("small", etf ? r.reference_yield_at || "指数" : "近365日", "rate-basis"));
+  divYield.title = etf ? [r.benchmark_name || "跟踪指数", "指数股息率", r.reference_yield_at].filter(Boolean).join(" · ") : "近 365 日现金分红率";
   const temp = el("td", r.temperature == null ? "—" : fmt(r.temperature, 1) + "°", "num temp");
   if (Number.isFinite(r.temperature) && rankingDay && !comparable(r)) {
     const date = observedDay(r);

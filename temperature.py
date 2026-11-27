@@ -27,10 +27,15 @@ def rank(value, ordered):
 
 
 def closed_history(data, item, now):
+    return closed_bars(data.get("long:" + item["code"], []), now,
+                       "HK" if item["code"].startswith("hk") else "CN")
+
+
+def closed_bars(bars, now, market):
     today = now.date().isoformat()
-    close = time(16, 5) if item["code"].startswith("hk") else time(15, 5)
+    close = time(16, 5) if market == "HK" else time(15, 5)
     after_close = now.time() >= close
-    return [(d, v) for d, v in data.get("long:" + item["code"], [])
+    return [(d, v) for d, v in bars
             if d < today or (after_close and d == today)]
 
 
@@ -147,10 +152,24 @@ def page_data(row, bars, source):
     series = historical_series(bars)
     at = row.get("temperature_at")
     note = "盘中暂估，收盘后可能变化。" if row.get("temperature_live") else "最近可用的历史收盘观测。"
+    if row.get("reference_is_index") and not row.get("reading_fallback") and row.get("reference_close") is not None:
+        note = "已用同币种价格指数的收盘涨跌幅暂估，历史曲线截至最新已公布指数日线。"
     if row.get("temperature") is None:
         note = "可用历史不足或行情缺失，暂无温度读数。"
-    return {**{key: row.get(key) for key in ("code", "name", "type", "currency", "temperature")},
+    index_history = row.get("reference_is_index", False)
+    note_stats = STATS_NOTE
+    if index_history:
+        basis = {"价格指数": "价格指数点位变化，不含现金分红", "全收益指数": "全收益指数累计收益，含分红再投资",
+                 "净收益指数": "净收益指数累计收益，按指数规则扣除股息相关税费"}.get(row["reference_kind"], row["reference_kind"])
+        note_stats = STATS_NOTE.replace("复权序列累计收益", basis)
+    stats = holding_stats(series)
+    # Only derived indicators and aggregate outcomes are published for an index.
+    if index_history:
+        series = [(day, None, value) for day, _, value in series]
+    return {**{key: row.get(key) for key in ("code", "name", "type", "currency", "temperature", "yield_pct")},
+            **{k: v for k, v in row.items() if k.startswith(("benchmark_", "reference_", "reading_")) and k != "reference_close"},
             "at": at, "band": band(row.get("temperature")), "components": row.get("temperature_components") or {},
             "price": row.get("price"), "price_at": row.get("at"),
-            "bands": BANDS, "thresholds": LIMITS, "series": series, "stats": holding_stats(series),
-            "method": METHOD, "stats_note": STATS_NOTE, "asof_note": note, "source": source}
+            "bands": BANDS, "thresholds": LIMITS, "series": series, "stats": stats,
+            "method": METHOD.replace("同一复权日线", "同一组日收盘序列") if row.get("benchmark_code") else METHOD,
+            "stats_note": note_stats, "asof_note": note, "source": source}

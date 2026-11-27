@@ -128,6 +128,8 @@ def configured_channels():
 def signal_time(row, signal):
     if signal in {"cold", "cold_second"}:
         return row.get("temperature_at")
+    if signal.startswith("rsi"):
+        return row.get("rsi_at") or row.get("at")
     return row.get("index_at") if signal in {"index", "index_second"} else row.get("at")
 
 
@@ -215,9 +217,16 @@ def rank_digest(snapshot, now, phase, sent):
         daily = row.get("rank_day_pct")
         change = f"{daily:+.2f}%" if daily is not None else "—"
         ytd = f"{row['ytd_pct']:+.2f}%" if row.get("ytd_pct") is not None else "—"
-        income = f"{row['yield_pct']:.2f}%" if row.get("yield_pct") is not None else "—"
+        index_etf = bool(row.get("benchmark_code"))
+        rate = row.get("reference_yield" if index_etf else "yield_pct")
+        income = f"{rate:.2f}%" if rate is not None else "—"
+        if index_etf and row.get("reference_yield_approx") and rate is not None:
+            income = f"约{rate:g}%"
+        income_label = "指数股息率" if index_etf else "近365日分红率"
+        rate_date = f"（{row['reference_yield_at']}）" if index_etf and row.get("reference_yield_at") else ""
+        basis = " · " + row["reading_basis"] if index_etf else ""
         lines.append(f"{n:02}　{row['name']}　{row['temperature']:.1f}° · {row['temperature_band']}\n"
-                     f"{row['code']}　当日 {change}　年内 {ytd}\n近365日分红率 {income}")
+                     f"{row['code']}　当日 {change}　年内 {ytd}\n{income_label} {income}{rate_date}{basis}")
     if pending:
         lines.append("待更新\n" + "、".join(row["name"] for row in pending))
     if os.getenv("DASHBOARD_URL"):

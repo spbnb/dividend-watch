@@ -29,8 +29,9 @@
       <div class="filter-line"><div id="filters" class="filters" role="group" aria-label="标的类别"></div>
         <label class="sort"><select id="sort" aria-label="清单排序"><option value="hot">温度从高到低</option><option value="cold">温度从低到高</option><option value="gap">距首档升序</option><option value="change">涨跌幅从高到低</option><option value="status">触发状态优先</option></select></label></div>
       <button id="clear-scope" hidden></button>
+      <p class="basis-key">ETF 行的涨跌和温度取自标注的序列。点「行情」查看 ETF 场内价和实际派息。</p>
       <table class="watch-table"><colgroup><col class="col-name"><col class="col-move"><col class="col-yield"><col class="col-temp"><col class="col-band"></colgroup>
-        <thead><tr><th scope="col">标的</th><th scope="col">当日涨跌<small>年内涨跌</small></th><th scope="col" title="近 365 日现金分红率">分红率<small>近365日</small></th><th scope="col">温度</th><th scope="col">温区</th></tr></thead><tbody id="rows"></tbody>
+        <thead><tr><th scope="col">标的</th><th scope="col">当日涨跌<small>年内涨跌</small></th><th scope="col">股息率<small>口径</small></th><th scope="col">温度</th><th scope="col">温区</th></tr></thead><tbody id="rows"></tbody>
       </table>
       <div id="empty" hidden>没有符合条件的标的。<button id="reset">清除筛选</button></div>
       <noscript><table><thead><tr><th>名称</th><th>代码</th><th>价格 / 净值</th><th>首档</th><th>状态</th></tr></thead><tbody>__ROWS__</tbody></table></noscript>
@@ -52,7 +53,7 @@
         </div>
       </article>
     </section>
-    <footer><span>北京时间（UTC+8） · 交易日定时更新</span><span>自定义价位提醒，仅供观察。</span></footer>
+    <footer><span>北京时间（UTC+8） · 交易日定时更新</span><a href="https://github.com/spbnb/dividend-watch/blob/main/research/strategy-backtest.md">温度策略回测</a></footer>
   </main>
   <dialog id="rules" aria-labelledby="rules-title"><div class="dialog-heading"><h2 id="rules-title">巡检规则</h2><button id="rules-close">关闭</button></div>
     <dl class="rule-list">
@@ -62,7 +63,7 @@
       <dt>跨境 ETF</dt><dd>159545、513530 触发后复核盘中参考净值（IOPV）。溢价高于 1.5% 时拦截买点。缺少 IOPV 或港股基准行情停更时显示待核验。</dd>
       <dt>场外基金</dt><dd>012708 的 RSI 使用基金已公布的日净值涨跌幅，盘中以估值涨跌幅暂估。单位净值和跟踪指数 931446 的当日跌幅各自设有两档。展开「行情」可查看各档和估值来源。</dd>
       <dt>标的温度计</dt><dd>点标的名称可查看综合温度、历史走势和不同温区的历史收益。综合温度由 250 日价格位置、RSI(14)、RSI(7) 按 50%、35%、15% 加权。盘中 ≤10° 为超低温，超过 10° 且 ≤25° 为低温。512890 只推送温度，其他条件仅观察。</dd>
-      <dt>榜单读法</dt><dd>最热、最冷比较同一最新观测日的标的，旧读数标注日期并列在同日读数之后。年内涨跌按复权口径计算。分红率为近 365 日每股或每份现金分红合计除以最新价或净值。缺少数据时显示「—」。</dd>
+      <dt>榜单读法</dt><dd>最热、最冷比较同一最新观测日的标的，旧读数标注日期并列在同日读数之后。ETF 的涨跌和温度优先取跟踪指数，使用 ETF 自身历史时会标明「ETF 复权」。ETF 行列示指数股息率，股票与场外基金列示近 365 日现金分红合计除以最新价或净值。缺少数据时显示「—」。</dd>
       <dt>重复提醒</dt><dd>本机和 GitHub 各自按渠道记录当天的档位提醒。从低温降至超低温可再次提醒，直接触及超低温同时覆盖当天低温档。</dd>
     </dl>
   </dialog>
