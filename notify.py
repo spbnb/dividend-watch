@@ -214,8 +214,10 @@ def rank_digest(snapshot, now, phase, sent):
     for n, row in enumerate(ranked, 1):
         daily = row.get("rank_day_pct")
         change = f"{daily:+.2f}%" if daily is not None else "—"
+        ytd = f"{row['ytd_pct']:+.2f}%" if row.get("ytd_pct") is not None else "—"
+        income = f"{row['yield_pct']:.2f}%" if row.get("yield_pct") is not None else "—"
         lines.append(f"{n:02}　{row['name']}　{row['temperature']:.1f}° · {row['temperature_band']}\n"
-                     f"{row['code']}　收盘涨跌 {change}")
+                     f"{row['code']}　当日 {change}　年内 {ytd}\n近365日分红率 {income}")
     if pending:
         lines.append("待更新\n" + "、".join(row["name"] for row in pending))
     if os.getenv("DASHBOARD_URL"):

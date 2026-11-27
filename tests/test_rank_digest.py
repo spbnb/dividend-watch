@@ -12,7 +12,7 @@ def snapshot(stamp, period):
 
     def row(code, temperature, band, observed):
         return {"name": code, "code": code, "temperature": temperature, "temperature_band": band,
-                "temperature_at": observed, "temperature_live": False, "rank_day_pct": 0}
+                "temperature_at": observed, "temperature_live": False, "rank_day_pct": 0, "yield_pct": 0}
 
     return {"generated": stamp.isoformat(), "cn_trading_day": True, "cn_previous_close": "2026-11-23",
             "benchmarks": {"CN": {"at": today + "T15:00:00+08:00"}},
@@ -34,7 +34,8 @@ class DigestTests(unittest.TestCase):
                 self.assertEqual(run("deliver"), (False, []))
                 self.assertCountEqual([c for c, _ in inbox], channels)
                 msg = "\n".join(inbox[0][1])
-                for text in ("已更新 2/3", "最热　乙 23.0°", "最冷　甲 0.0°", "低温 1 只 · 超低温 1 只", "+0.00%", "待更新\n丙"):
+                for text in ("已更新 2/3", "最热　乙 23.0°", "最冷　甲 0.0°", "低温 1 只 · 超低温 1 只",
+                             "当日 +0.00%　年内 —", "近365日分红率 0.00%", "待更新\n丙"):
                     self.assertIn(text, msg)
                 self.assertNotIn("99.0°", msg)
                 self.assertEqual(run("reserve"), (False, []))
