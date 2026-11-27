@@ -114,8 +114,10 @@ def _ft_sp_quote(today):
 def _yahoo_sp_quote(today):
     chart = json.loads(_fetch(SP_YAHOO, "https://finance.yahoo.com/"))["chart"]["result"][0]
     meta = chart["meta"]
-    if not isinstance(meta, dict) or (meta.get("symbol"), meta.get("currency"), meta.get("instrumentType"), meta.get("exchangeName")) != (
-            "^SPCLLHCP", "CNY", "INDEX", "SNP"):
+    if not isinstance(meta, dict):
+        return None
+    identity = tuple(meta.get(key) for key in ("symbol", "currency", "instrumentType", "exchangeName"))
+    if identity != ("^SPCLLHCP", "CNY", "INDEX", "SNP"):
         return None
     price = number(meta.get("regularMarketPrice"), positive=True)
     stamp = number(meta.get("regularMarketTime"), positive=True)

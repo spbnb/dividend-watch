@@ -106,3 +106,12 @@ class GlobalReferenceTests(unittest.TestCase):
                 patch.object(reference, "_hang_seng_yield", return_value=None):
             self.assertEqual(reference.hang_seng_price_bars(self.today), [("2026-11-26", 4114.59)])
             self.assertEqual(reference.get_reference("HSHYLV", self.today)["bars"], [("2026-11-26", 10259.94)])
+
+    def test_fresh_yahoo_level_replaces_a_stalled_same_day_ft_snapshot(self):
+        ft = {"price": 4000, "at": "2026-11-26T10:10:00+08:00", "prev_close": 3980}
+        yahoo = {"price": 4008, "at": "2026-11-26T11:05:20+08:00", "prev_close": None}
+        with patch.object(reference, "datetime", wraps=datetime) as clock, \
+                patch.object(reference, "_ft_sp_quote", return_value=ft), \
+                patch.object(reference, "_yahoo_sp_quote", return_value=yahoo):
+            clock.now.return_value = datetime(2026, 11, 26, 11, 7, tzinfo=reference.CST)
+            self.assertEqual(reference.sp_price_quote(self.today), yahoo)

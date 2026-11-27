@@ -8,6 +8,18 @@ import market
 
 
 class LongHistoryTests(unittest.TestCase):
+    def test_quote_backup_recovers_only_missing_price_index_codes(self):
+        stamp = int(datetime(2026, 11, 27, 16, tzinfo=market.CST).timestamp())
+        def payload(code, exchange, price):
+            return json.dumps({"data": {"diff": [{"f12": code, "f13": exchange, "f2": price,
+                                                "f124": stamp, "f297": 20261127}]}})
+        with patch.object(market, "read", side_effect=[payload("000922", 1, 5483.72),
+                                                       payload("HSHYLV", 124, 4136.1)]) as read:
+            quotes = market.eastmoney_quotes(["000922", "HSHYLV", "SPCLLHCP"])
+        self.assertEqual(set(quotes), {"000922", "HSHYLV"})
+        self.assertEqual(quotes["HSHYLV"]["price"], 4136.1)
+        self.assertNotIn("000922", read.call_args.args[0])
+
     def test_direct_index_collection_has_no_fund_prices_or_distributions(self):
         day = date(2026, 11, 27)
         indexes = list(market.INDEX_BENCHMARKS)

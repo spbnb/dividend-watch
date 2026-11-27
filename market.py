@@ -39,7 +39,10 @@ def number(value, *, positive=False):
 
 def timestamp(value):
     if isinstance(value, (int, float)):
-        return datetime.fromtimestamp(value, CST).isoformat(timespec="seconds")
+        try:
+            return datetime.fromtimestamp(value, CST).isoformat(timespec="seconds")
+        except (OverflowError, OSError, ValueError):
+            return None
     for pattern in ("%Y%m%d%H%M%S", "%Y/%m/%d %H:%M:%S", "%Y-%m-%d %H:%M"):
         try:
             return datetime.strptime(value, pattern).replace(tzinfo=CST).isoformat()
@@ -97,34 +100,39 @@ def eastmoney_quotes(codes):
     ids = {key: code for code in codes if (key := secid(code)) is not None}
     if not ids:
         return {}
-    params = urlencode({"secids": ",".join(ids), "fltt": 2, "invt": 2,
-                        "fields": "f2,f3,f5,f12,f13,f18,f124,f297,f441"})
+    result = {}
     for host in ("push2", "push2delay"):
         try:
+            outstanding = [key for key, code in ids.items() if code not in result]
+            params = urlencode({"secids": ",".join(outstanding), "fltt": 2, "invt": 2,
+                                "fields": "f2,f3,f5,f12,f13,f18,f124,f297,f441"})
             url = f"https://{host}.eastmoney.com/api/qt/ulist.np/get?{params}"
             payload = json.loads(read(url, referer="https://quote.eastmoney.com/"))
-            records = (payload.get("data") or {}).get("diff") or []
+            if not isinstance(payload, dict) or not isinstance(payload.get("data"), dict):
+                continue
+            records = payload["data"].get("diff") or []
             if isinstance(records, dict):
                 records = records.values()
-            result = {}
             for f in records:
+                if not isinstance(f, dict):
+                    continue
                 code = ids.get(f"{f.get('f13')}.{f.get('f12')}")
                 price, epoch = number(f.get("f2"), positive=True), number(f.get("f124"), positive=True)
-                if not code or price is None or epoch is None:
+                if not code or code in result or price is None or epoch is None:
                     continue
                 at = timestamp(epoch)
                 data_day = str(f.get("f297") or "-")
-                if data_day.isdigit() and len(data_day) == 8 and at[:10].replace("-", "") != data_day:
+                if not at or (data_day.isdigit() and len(data_day) == 8 and at[:10].replace("-", "") != data_day):
                     continue
                 result[code] = {"price": price, "pct": number(f.get("f3")), "at": at,
                                 "volume": number(f.get("f5")), "source": "东方财富",
                                 "prev_close": number(f.get("f18"), positive=True),
                                 "iopv": number(f.get("f441"), positive=True)}
-            if result:
-                return result
+            if len(result) == len(ids):
+                break
         except DATA_ERRORS:
             continue
-    return {}
+    return result
 
 
 def history(code):
